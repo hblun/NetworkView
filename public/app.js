@@ -1245,7 +1245,8 @@ const onApplyFilters = async (options = {}) => {
   });
 
   try {
-    const filtered = hasAttributeFilters();
+    const filters = getCurrentFilters();
+    const filtered = hasAttributeFilters(filters);
     applyMapFilters();
     setBaseLayerFocus(filtered);
     updateScopeChips();
@@ -2262,11 +2263,11 @@ const applyMapFilters = () => {
     const filters = getCurrentFilters();
     let filter = buildMapFilter(filters);
     // If filters are set but we cannot build a tile filter yet, retry tile field detection from rendered features.
-    if (!filter && hasAttributeFilters()) {
+    if (!filter && hasAttributeFilters(filters)) {
       detectTileFieldsFromRendered(state.map, state.baseLayerId);
       filter = buildMapFilter(filters);
     }
-    if (!filter && hasAttributeFilters()) {
+    if (!filter && hasAttributeFilters(filters)) {
       const warningKey = JSON.stringify({
         modes: getSelectedValues(elements.modeFilter),
         operators: getSelectedOperators().map((item) => item.value),
