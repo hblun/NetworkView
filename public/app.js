@@ -1312,6 +1312,257 @@ const onApplyFilters = async (options = {}) => {
   }
 };
 
+const updateBoundaryHighlight = () => {
+  const map = state.map;
+  if (!map) {
+    return;
+  }
+  const update = (key, selectedValue) => {
+    const info = state.boundaryLayers[key];
+    if (!info || !map.getLayer(info.layerId)) {
+      return;
+    }
+    if (!selectedValue) {
+      map.setFilter(info.layerId, ["==", ["get", "__never__"], "__never__"]);
+      return;
+    }
+    const field = info.codeField || "code";
+    if (selectedValue === NONE_OPTION_VALUE) {
+      map.setFilter(info.layerId, ["any", ["!", ["has", field]], ["==", ["to-string", ["get", field]], ""]]);
+      return;
+    }
+    map.setFilter(info.layerId, ["==", ["to-string", ["get", field]], String(selectedValue)]);
+  };
+
+  update("la", getSelectedValue(elements.laFilter));
+  update("rpt", getSelectedValue(elements.rptFilter));
+};
+
+const getTableRowAtIndex = (index) => {
+  if (state.conn && state.tablePaging.enabled) {
+    const range = getTableLoadedRange();
+    if (index < range.start || index >= range.end) {
+      return null;
+    }
+    return state.tablePaging.rows[index - range.start] || null;
+  }
+  return state.tableRows[index] || null;
+};
+
+const loadGeojsonPreview = async () => {
+  const config = state.config || {};
+  const geojsonPath = config.geojsonFile;
+  if (!geojsonPath) {
+    setStatus("No geojsonFile configured.");
+    return;
+  }
+  const url = toAbsoluteUrl(joinUrl(config.dataBaseUrl, geojsonPath));
+  const limit = Math.max(1, Math.min(Number(config.geojsonPreviewLimit ?? 500), 5000));
+
+  toggleActionButtons(false);
+  setStatus(`Loading GeoJSON preview (first ${formatCount(limit)} features)...`);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`GeoJSON fetch failed (${response.status})`);
+  }
+  if (!response.body) {
+    // Fallback: full text (may be large).
+    const full = await response.json();
+    const features = Array.isArray(full.features) ? full.features.slice(0, limit) : [];
+    return { type: "FeatureCollection", features };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let inFeatures = false;
+  let depth = 0;
+  let current = "";
+  const features = [];
+
+  const pushFeatureIfComplete = () => {
+    if (!current.trim()) {
+      return;
+    }
+    try {
+      const feature = JSON.parse(current);
+      if (feature && feature.type === "Feature") {
+        features.push(feature);
+      }
+    } catch (error) {
+      // Ignore partial parses; this is a best-effort preview loader.
+    }
+  };
+
+  try {
+    while (features.length < limit) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+      // Find the "features" array start once.
+      if (!inFeatures) {
+        const idx = buffer.indexOf('"features"');
+        if (idx === -1) {
+          if (done) break;
+          if (buffer.length > 1024 * 1024) {
+            buffer = buffer.slice(-1024 * 16);
+          }
+          continue;
+        }
+        const arrIdx = buffer.indexOf("[", idx);
+        if (arrIdx === -1) {
+          if (done) break;
+          continue;
+        }
+        buffer = buffer.slice(arrIdx + 1);
+        inFeatures = true;
+      }
+
+      // Extract feature objects by tracking brace depth.
+      for (let i = 0; i < buffer.length && features.length < limit; i += 1) {
+        const ch = buffer[i];
+        if (depth === 0) {
+          if (ch === "{") {
+            depth = 1;
+            current = "{";
+          } else if (ch === "]") {
+            // End of features array.
+            features.length = Math.min(features.length, limit);
+            buffer = buffer.slice(i + 1);
+            break;
+          }
+          continue;
+        }
+
+        current += ch;
+        if (ch === "{") depth += 1;
+        if (ch === "}") depth -= 1;
+
+        if (depth === 0) {
+          pushFeatureIfComplete();
+          current = "";
+        }
+      }
+
+      // Keep only unread tail when still streaming.
+      if (depth === 0) {
+        const lastBrace = buffer.lastIndexOf("}");
+        buffer = lastBrace !== -1 ? buffer.slice(lastBrace + 1) : "";
+      } else {
+        // Keep current partial object + a small tail.
+        buffer = current.length ? "" : buffer.slice(-1024 * 32);
+      }
+
+      if (done) break;
+    }
+  } finally {
+    if (features.length >= limit) {
+      try {
+        await reader.cancel();
+      } catch (error) {
+        // Ignore.
+      }
+    }
+  }
+
+  return { type: "FeatureCollection", features };
+};
+
+const loadInitialDatasetView = async () => {
+  if (!state.conn) {
+    return;
+  }
+  setStatus("Loading initial table...");
+  try {
+    const count = await queryCount();
+    const countNumber = toNumber(count);
+    state.lastQuery = { count: countNumber };
+    setPreview(`${formatCount(countNumber)} routes in selection.`);
+
+    state.tablePaging.enabled = true;
+    state.tablePaging.queryKey = getFilterKey();
+    state.tablePaging.offset = 0;
+    state.tablePaging.rows = [];
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+    ensureTablePageFor(0);
+
+    await updateStats(countNumber);
+    updateEvidence();
+    setStatus("Ready.");
+  } catch (error) {
+    setStatus(`Initial load failed: ${error.message}`);
+  }
+};
+
+const onClearFilters = () => {
+  logAction("Filters cleared.");
+  Array.from(elements.modeFilter.options).forEach((opt) => {
+    opt.selected = false;
+  });
+  Array.from(elements.operatorFilter.options).forEach((opt) => {
+    opt.selected = false;
+  });
+  if (elements.timeBandFilter) {
+    Array.from(elements.timeBandFilter.options).forEach((opt) => {
+      opt.selected = false;
+    });
+  }
+  if (elements.laFilter) {
+    elements.laFilter.value = "";
+  }
+  if (elements.rptFilter) {
+    elements.rptFilter.value = "";
+  }
+  if (elements.serviceSearch) {
+    elements.serviceSearch.value = "";
+  }
+  setPreview("No filters applied.");
+  if (state.overlay) {
+    state.overlay.setProps({ layers: [] });
+  }
+  state.lastPreviewGeojson = null;
+  state.tableRows = [];
+  state.tablePaging.enabled = true;
+  state.tablePaging.queryKey = getFilterKey();
+  state.tablePaging.offset = 0;
+  state.tablePaging.rows = [];
+  state.lastQuery = null;
+  clearSelection();
+
+  // Reload full dataset selection (clearing should never leave the table empty when data exists).
+  onApplyFilters({ autoFit: false });
+};
+
+const onLoadSample = async () => {
+  logAction("GeoJSON preview requested.");
+  try {
+    const geojson = await loadGeojsonPreview();
+    state.lastPreviewGeojson = geojson;
+    updateOverlay(geojson);
+    showGeojsonOnMap(geojson);
+    setPreview(`GeoJSON preview: ${formatCount(geojson.features.length)} routes (preview only).`);
+    fitMapToScope(state.map, "Fitting to preview scope...", setStatus, elements.bboxFilter?.checked || false);
+
+    // Populate a small table from the preview, even if DuckDB isn't running yet.
+    state.tablePaging.enabled = false;
+    state.lastQuery = { count: geojson.features.length };
+    state.tableRows = geojson.features
+      .slice(0, state.tableLimit)
+      .map((feature) => normalizePreviewProps(feature.properties || {}));
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+    updateEvidence();
+
+    setStatsHint("GeoJSON preview loaded. Use DuckDB for full stats/exports when available.");
+    setStatus("GeoJSON preview loaded.");
+  } catch (error) {
+    logEvent("error", "GeoJSON preview failed.", { error: error.message });
+    setStatus(`GeoJSON preview failed: ${error.message}`);
+  } finally {
+    toggleActionButtons(true);
+  }
+};
+
 const normalizeModes = (raw) => {
   if (!raw) {
     return [];
