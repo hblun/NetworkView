@@ -16,6 +16,7 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - No build pipeline or CI is present; runtime depends on CDN-hosted ES modules (MapLibre, PMTiles, DuckDB-WASM) and a direct R2 public bucket configured in `public/config.json`.
 - `README.md` references a `frontend/` path and `tools/` scripts that are not in this repo (likely from an earlier structure), so quick-start and build steps are currently stale.
 - `BASELINE.md` exists and documents the current runtime + dataset; it should be treated as the initial baseline doc alongside this plan.
+- UI review (2025-12-25): the shipped layout in `public/index.html` already mirrors the three-panel Phase 2 structure and header toolbar, but the Scope chips/search inputs are ornamental while filtering is limited to the Mode/Operator selects, bbox toggle, and export buttons wired in `public/app.js`; the bottom Data Inspector table remains fixed sample data and never refreshes even when DuckDB runs the query, so the “linked table + inspector” expectations from Phase 2 are still outstanding.
 
 
 ## Architecture overview
@@ -342,6 +343,12 @@ Mitigation:
 - ship day-type first
 - add time flags once you have reliable derivation
 - make the UI honest (disable with explanation rather than guessing)
+
+### 4) Data inspector/table hooks missing despite Phase 2 layout
+Risk: the static `public/index.html` table and Scope chips are visual placeholders, so there is no way to compare map filters to the table or copy service/operator IDs, which undermines the “table-first” ethos and makes exports difficult to verify.
+Mitigation:
+- connect the DuckDB query results to the Data Inspector rows and mirror route selections so the map/table stay linked.
+- wire the scope chips/search inputs to real filters (clip/time band) before landing Phase 2 acceptance criteria.
 
 ---
 

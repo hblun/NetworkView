@@ -29,3 +29,10 @@
 ## Follow-up priorities
 - If the dataset changes, confirm that `metadata.generatedAt`/`lastUpdated` update, the R2 bucket has `"metadata.json"`, and `config.json` still points at that bucket.
 - Capture any future smoke tests or linting needed to keep the repo aligned with the Phase 4 performance hardening goals.
+
+## UI review (2025-12-25)
+- Header/kicker mirrors the "Map Viewer" branding with dataset date/count, share/snapshot actions, and nav pills; the copy is static and drawn from `public/index.html`.
+- “Scope” column presents chips, a search input, and Mode/Operator selects, but none of the scope chips or search box interact with the query layer—the DOM elements exist only for visuals while the filtering logic relies solely on the selects, bbox toggle, and export buttons wired up in `public/app.js`, so Phase 2 clip/search requirements (LA/RPT clipping, service search, evidence chips) remain unmet.
+- Mode and operator filters trigger DuckDB queries in `app.js`, and stats cards/Data Inspector controller texts update as part of `applyFilters`, but the table below is hard-coded sample rows and never refreshed, meaning the “linked table” and inspector drill-through promised by Phase 2 still need implementation; clicking a route in the map only updates the sidebar card, not the table.
+- Map uses MapLibre + a deck.gl overlay for the filtered preview and enclosure highlight (sample preview uses two line strings), while the base PMTiles layer stays visible at reduced opacity once filters run.
+- Export buttons call the DuckDB query helpers (`onDownloadCsv`/`onDownloadGeojson`), but both cap exports at 50k rows and require manual confirmation for larger amounts; there is no evidence strip or Map Snapshot button wired to real data yet.
