@@ -4,7 +4,7 @@
 Document the run-time rules and expectations codified for agents working in the NetworkView repo.
 
 ## Primary instructions
-- Treat `plan.md` as the authoritative roadmap for product priorities and always link changes back to its phases, definitions, and risks.
+- Treat `plan.md` as the authoritative roadmap for product priorities and intent. It describes phases, definitions, and risks. It is not the task tracker.
 - The `public/` folder contains the entire network view runtime: `index.html`, `styles.css`, and `app.js` describe the player UI, while `routes.*` and `metadata.json` hold the dataset.
 - Any work reviewing or extending the viewer should also check `README.md` for quick-start scripts and data-generation helpers.
 - Baseline documentation should live alongside the roadmap to capture dataset expectations, runtime dependencies, and verification steps.
@@ -18,7 +18,8 @@ Document the run-time rules and expectations codified for agents working in the 
 - When multiple skills are triggered (e.g., by name or by a task that matches a description), execute them in the order they are mentioned and note the sequence.
 - If a skill named in the request cannot be found, call it out briefly and default to standard repo tooling.
 - Update `plan.md` with any discoveries, blockers, or doc work product; the plan doubles as the decision log for prioritization conversations.
-- Track open work in Beads: issues live in `.beads/issues.jsonl` and are managed with the `bd` CLI (`bd list`, `bd create`, `bd update`, `bd close`). Use Beads for new tasks and keep `plan.md` as the high-level roadmap.
+- Track open work in Beads: issues live in `.beads/issues.jsonl` and are managed with the `bd` CLI (`bd list`, `bd create`, `bd update`, `bd close`). Beads is the source of truth for actionable tasks; `plan.md` stays as the roadmap and intent.
+- When creating Beads issues, include enough detail to act without reopening `plan.md`: phase, scope, acceptance criteria, risks/dependencies, and any relevant files/commands.
 
 ## Runtime reminders
 - The viewer pulls `maplibre-gl`, `pmtiles`, `deck.gl`, and `@duckdb/duckdb-wasm` directly from CDNs via ES module imports. Bundling or local caching is necessary for offline or restricted environments.
