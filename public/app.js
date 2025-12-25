@@ -87,6 +87,16 @@ const elements = {
 // Duplicate URL utils removed - now imported from ./js/utils/url.js:
 // - joinUrl, toAbsoluteUrl, addCacheBuster
 
+// Helper function to gather current filter state from UI
+const getCurrentFilters = () => ({
+  modes: getSelectedValues(elements.modeFilter),
+  operators: getSelectedOperators(),
+  timeBands: getSelectedTimeBands(),
+  serviceSearch: getServiceSearchValue(),
+  laValue: getSelectedValue(elements.laFilter),
+  rptValue: getSelectedValue(elements.rptFilter)
+});
+
 const getTimeBandLabel = (key) => TIME_BAND_OPTIONS.find((option) => option.key === key)?.label || key;
 
 const getFeatureFlag = (config, name, defaultValue = false) => {
@@ -570,7 +580,7 @@ const updateEvidence = () => {
   const meta = state.metadata || {};
   const generatedAt = meta.generatedAt || meta.lastUpdated || "Unknown";
   const total = meta.counts?.total ?? meta.total ?? null;
-  const where = buildWhere();
+  const where = buildWhere(getCurrentFilters());
   const hasFilters = Boolean(where);
   const hint = hasFilters ? "Filtered view" : "Full dataset";
 
@@ -968,9 +978,338 @@ const clearSelection = () => {
   state.selectedFeatureKey = null;
   renderSelection(null);
   syncSelectedLayer();
-  renderTable();
+  renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
   renderLegend();
   logAction("Selection cleared.");
+};
+
+const showGeojsonOnMap = (geojson) => {
+  const map = state.map;
+  if (!geojson) {
+    return;
+  }
+  if (!map || !map.loaded()) {
+    state.pendingPreviewGeojson = geojson;
+    return;
+  }
+  const sourceId = "routes-preview";
+  const layerId = "routes-preview-line";
+  const selectedId = "routes-preview-selected";
+  const bindKey = "_previewClickBound";
+
+  if (!map.getSource(sourceId)) {
+    map.addSource(sourceId, { type: "geojson", data: geojson });
+  } else {
+    const source = map.getSource(sourceId);
+    if (source && typeof source.setData === "function") {
+      source.setData(geojson);
+    }
+  }
+
+  if (!map.getLayer(layerId)) {
+    map.addLayer(
+      {
+        id: layerId,
+        type: "line",
+        source: sourceId,
+        paint: {
+          "line-color": "#165570",
+          "line-width": ROUTE_LINE_WIDTH,
+          "line-opacity": 0.9
+        }
+      },
+      // If PMTiles layer exists, draw preview above it.
+      map.getLayer(state.selectedLayerId) ? state.selectedLayerId : undefined
+    );
+  }
+
+  if (!map.getLayer(selectedId)) {
+    map.addLayer({
+      id: selectedId,
+      type: "line",
+      source: sourceId,
+      filter: ["==", ["get", "__never__"], "__never__"],
+      paint: {
+        "line-color": "#f59e0b",
+        "line-width": SELECTED_LINE_WIDTH,
+        "line-opacity": 0.95
+      }
+    });
+  }
+
+  if (!state[bindKey]) {
+    state[bindKey] = true;
+    map.on("click", layerId, (event) => {
+      const feature = event.features?.[0];
+      if (!feature) {
+        clearSelection();
+        return;
+      }
+      setSelection(feature, getFeatureKey(feature));
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      // best-effort highlight by serviceId if available
+      const serviceId = getSelectedServiceId();
+      const serviceKey = state.tileFields.serviceId || "serviceId";
+      if (serviceId) {
+        map.setFilter(selectedId, ["==", ["to-string", ["get", serviceKey]], serviceId]);
+      }
+    });
+  }
+
+  renderLegend();
+};
+
+const updateScopeChips = () => {
+  if (!elements.scopeChips) {
+    return;
+  }
+  clearElement(elements.scopeChips);
+
+  const chips = [];
+  const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
+  const operators = getSelectedOperators()
+    .map((o) => o.value)
+    .filter((o) => o && o !== NONE_OPTION_VALUE);
+  const timeBands = getSelectedTimeBands().filter((band) => band);
+  const laSelection = getSelectedValue(elements.laFilter);
+  const rptSelection = getSelectedValue(elements.rptFilter);
+  const laLabel = elements.laFilter?.selectedOptions?.[0]?.textContent || "";
+  const rptLabel = elements.rptFilter?.selectedOptions?.[0]?.textContent || "";
+  const search = getServiceSearchValue();
+  const bbox = elements.bboxFilter?.checked ? "Viewport" : "";
+
+  if (modes.length) chips.push({ key: "modes", icon: "directions_bus", label: `Mode: ${modes.join(", ")}` });
+  if (operators.length) chips.push({ key: "ops", icon: "apartment", label: `Operator: ${operators.join(", ")}` });
+  if (timeBands.length) {
+    chips.push({
+      key: "time",
+      icon: "schedule",
+      label: `Time: ${timeBands.map(getTimeBandLabel).join(", ")}`
+    });
+  }
+  if (laSelection) chips.push({ key: "la", icon: "place", label: `LA: ${laLabel || laSelection}` });
+  if (rptSelection) chips.push({ key: "rpt", icon: "hub", label: `RTP: ${rptLabel || rptSelection}` });
+  if (search) chips.push({ key: "search", icon: "search", label: `Search: ${search}` });
+  if (bbox) chips.push({ key: "bbox", icon: "crop_free", label: `Limit: ${bbox}` });
+
+  if (!chips.length) {
+    const empty = document.createElement("div");
+    empty.className = "text-[11px] text-text-tertiary";
+    empty.textContent = "No active scope.";
+    elements.scopeChips.appendChild(empty);
+    return;
+  }
+
+  const removeFor = (key) => {
+    if (key === "modes") {
+      Array.from(elements.modeFilter.options).forEach((opt) => {
+        opt.selected = false;
+      });
+    } else if (key === "ops") {
+      Array.from(elements.operatorFilter.options).forEach((opt) => {
+        opt.selected = false;
+      });
+    } else if (key === "time") {
+      if (elements.timeBandFilter) {
+        Array.from(elements.timeBandFilter.options).forEach((opt) => {
+          opt.selected = false;
+        });
+      }
+    } else if (key === "search") {
+      if (elements.serviceSearch) elements.serviceSearch.value = "";
+    } else if (key === "bbox") {
+      if (elements.bboxFilter && !elements.bboxFilter.disabled) elements.bboxFilter.checked = false;
+    } else if (key === "la") {
+      if (elements.laFilter) elements.laFilter.value = "";
+    } else if (key === "rpt") {
+      if (elements.rptFilter) elements.rptFilter.value = "";
+    }
+    onApplyFilters();
+  };
+
+  chips.forEach((chip) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className =
+      "inline-flex items-center gap-1.5 pl-2 pr-1 py-1 bg-slate-100 text-text-main border border-slate-200 rounded-full text-xs font-medium hover:bg-slate-200 transition-colors";
+    button.innerHTML = `
+      <span class="material-symbols-outlined text-[14px]">${chip.icon}</span>
+      <span>${chip.label}</span>
+      <span class="flex items-center justify-center h-4 w-4 rounded-full hover:bg-slate-300 ml-0.5" data-remove="1">
+        <span class="material-symbols-outlined text-[12px]">close</span>
+      </span>
+    `;
+    button.addEventListener("click", (event) => {
+      const remove = event.target?.closest?.("[data-remove]");
+      if (remove) {
+        event.preventDefault();
+        removeFor(chip.key);
+      }
+    });
+    elements.scopeChips.appendChild(button);
+  });
+};
+
+const updateOverlay = (geojson) => {
+  if (!state.overlay || !state.deck) {
+    state.pendingGeojson = geojson;
+    return;
+  }
+  state.pendingGeojson = null;
+  state.overlayVersion += 1;
+  const selectedKey = state.selectedFeatureKey;
+  const features = geojson.features || [];
+
+  // Performance: Pre-calculate colors when coloring by operator to avoid expensive
+  // lookups inside the Deck.gl render loop.
+  if (state.colorByOperator) {
+    features.forEach((feature) => {
+      // It's safe to mutate feature properties here, as this geojson data is
+      // transient and regenerated on each filter application.
+      if (!feature.properties) feature.properties = {};
+      const operator = getOperatorValue(feature.properties);
+      feature.properties._operatorColor = getOperatorColor(operator || "Unknown");
+    });
+  }
+
+  const selectedFeatures = selectedKey
+    ? features.filter((feature, idx) => getFeatureKey(feature, String(idx)) === selectedKey)
+    : [];
+  if (selectedKey && !selectedFeatures.length) {
+    state.selectedFeature = null;
+    state.selectedFeatureKey = null;
+    renderSelection(null);
+  }
+
+  const baseLayer = new state.deck.PathLayer({
+    id: `filtered-routes-${state.overlayVersion}`,
+    data: features,
+    pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 226, 145, 200],
+    getPath: (feature) => feature.geometry?.coordinates || [],
+    getColor: (feature) => {
+      if (state.colorByOperator) {
+        // Fallback color for safety, though _operatorColor should always be present.
+        return (feature.properties || {})._operatorColor || [22, 85, 112, 180];
+      }
+      return [22, 85, 112, 180];
+    },
+    widthUnits: "pixels",
+    getWidth: 2,
+    opacity: 0.9,
+    onClick: (info) => {
+      if (!info?.object) {
+        clearSelection();
+        return;
+      }
+      const fallbackKey = info.index !== undefined ? String(info.index) : "";
+      setSelection(info.object, fallbackKey);
+      if (state.lastPreviewGeojson) {
+        updateOverlay(state.lastPreviewGeojson);
+      }
+    }
+  });
+
+  const highlightLayer = selectedFeatures.length
+    ? new state.deck.PathLayer({
+        id: `filtered-routes-highlight-${state.overlayVersion}`,
+        data: selectedFeatures,
+        getPath: (feature) => feature.geometry?.coordinates || [],
+        getColor: [255, 214, 102, 230],
+        widthUnits: "pixels",
+        getWidth: 5,
+        opacity: 0.95
+      })
+    : null;
+
+  state.overlay.setProps({ layers: highlightLayer ? [baseLayer, highlightLayer] : [baseLayer] });
+};
+
+const onApplyFilters = async (options = {}) => {
+  if (state.applyingFilters) {
+    state.pendingFilterApply = true;
+    return;
+  }
+  state.applyingFilters = true;
+  toggleActionButtons(false);
+  setStatus("Applying filters...");
+  logAction("Filters applied.", {
+    modes: getSelectedValues(elements.modeFilter),
+    operators: getSelectedOperators().map((item) => item.value),
+    timeBands: getSelectedTimeBands(),
+    la: getSelectedValue(elements.laFilter),
+    rpt: getSelectedValue(elements.rptFilter),
+    search: getServiceSearchValue(),
+    bbox: elements.bboxFilter?.checked
+  });
+
+  try {
+    const filtered = hasAttributeFilters();
+    applyMapFilters();
+    setBaseLayerFocus(filtered);
+    updateScopeChips();
+    updateEvidence();
+    renderLegend();
+    const shouldFit = options.autoFit === true;
+    if (state.map && shouldFit) {
+      state.map.once("idle", () => fitMapToScope(state.map, "Fitting to filtered scope...", setStatus, elements.bboxFilter?.checked || false));
+    }
+
+    if (!state.conn) {
+      setPreview("Filters applied to map. DuckDB is unavailable, so table/stats/exports are disabled.");
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      return;
+    }
+
+    const validation = validateFilters();
+    if (validation) {
+      logEvent("warn", "Filter validation failed.", { message: validation });
+      setStatus(validation);
+      return;
+    }
+
+    const count = await queryCount();
+    const countNumber = toNumber(count);
+    setPreview(`${formatCount(count)} routes in selection.`);
+    state.lastQuery = { count: countNumber };
+    state.tablePaging.enabled = true;
+    state.tablePaging.queryKey = getFilterKey();
+    state.tablePaging.offset = 0;
+    state.tablePaging.rows = [];
+
+    if (countNumber === 0) {
+      setStatus("No routes matched the current filters.");
+      state.tableRows = [];
+      state.tablePaging.rows = [];
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+    } else {
+      setStatus("Filters applied. Table/stats updated.");
+    }
+
+    await updateStats(countNumber);
+    // Paging mode: load first page; non-paging mode: use full tableRows.
+    if (state.tablePaging.enabled) {
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      ensureTablePageFor(0);
+    } else {
+      state.tableRows = await queryTable(state.tableLimit, 0);
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+    }
+    updateEvidence();
+  } catch (error) {
+    logEvent("error", "Filter query failed.", { error: error.message });
+    setStatus(`Query failed: ${error.message}`);
+  } finally {
+    state.applyingFilters = false;
+    toggleActionButtons(true);
+    if (state.pendingFilterApply) {
+      state.pendingFilterApply = false;
+      window.setTimeout(() => {
+        onApplyFilters(options);
+      }, 0);
+    }
+  }
 };
 
 const normalizeModes = (raw) => {
@@ -1420,7 +1759,7 @@ const initMap = (config) => {
         if (id !== "routes") return;
         // When the first source data arrives, consider fitting to metadata bounds if provided.
         if (!userMoved && state.metadata?.bbox && getFeatureFlag(state.config, "autoFitBounds", true)) {
-          fitMapToBbox(state.metadata.bbox, "Fitting to dataset bounds...");
+          fitMapToBbox(state.map, state.metadata.bbox, "Fitting to dataset bounds...", setStatus);
         }
       });
 
@@ -1439,7 +1778,7 @@ const initMap = (config) => {
               if (candidate !== configured) {
                 setStatus(`Detected PMTiles layer '${candidate}'.`);
                 buildVectorLayers(candidate);
-                detectTileFieldsFromRendered();
+                detectTileFieldsFromRendered(state.map, state.baseLayerId);
                 applyMapFilters();
                 syncSelectedLayer();
               }
@@ -1470,7 +1809,7 @@ const initMap = (config) => {
           setStatus(state.duckdbReady ? "Routes rendered. DuckDB ready." : "Routes rendered. DuckDB not ready.");
           if (!userMoved) {
             // Fit once when we first see data.
-            fitMapToScope("Fitting to dataset scope...");
+            fitMapToScope(state.map, "Fitting to dataset scope...", setStatus, elements.bboxFilter?.checked || false);
           }
         }
       }, 3500);
@@ -1523,7 +1862,7 @@ const initMap = (config) => {
       }
       setSelection(feature, getFeatureKey(feature));
       syncSelectedLayer();
-      renderTable();
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
     });
 
     map.on("mouseenter", "routes-line", () => {
@@ -1542,7 +1881,7 @@ const initMap = (config) => {
 
     // Try to infer tile field names from rendered features for reliable filters.
     const tryDetect = () => {
-      detectTileFieldsFromRendered();
+      detectTileFieldsFromRendered(state.map, state.baseLayerId);
       applyMapFilters();
     };
     map.once("idle", tryDetect);
@@ -1614,7 +1953,7 @@ const getViewportKey = () => {
 };
 
 const getFilterKey = () => {
-  const where = buildWhere();
+  const where = buildWhere(getCurrentFilters());
   const viewport = getViewportKey();
   return `${where}|${viewport}`;
 };
@@ -1635,11 +1974,12 @@ const applyMapFilters = () => {
     return;
   }
   if (map.getLayer(state.baseLayerId)) {
-    let filter = buildMapFilter();
+    const filters = getCurrentFilters();
+    let filter = buildMapFilter(filters);
     // If filters are set but we cannot build a tile filter yet, retry tile field detection from rendered features.
     if (!filter && hasAttributeFilters()) {
-      detectTileFieldsFromRendered();
-      filter = buildMapFilter();
+      detectTileFieldsFromRendered(state.map, state.baseLayerId);
+      filter = buildMapFilter(filters);
     }
     if (!filter && hasAttributeFilters()) {
       const warningKey = JSON.stringify({
@@ -1684,7 +2024,7 @@ const syncSelectedLayer = () => {
 };
 
 const queryCount = async () => {
-  const where = buildWhere();
+  const where = buildWhere(getCurrentFilters());
   const result = await state.conn.query(
     `SELECT COUNT(*) AS count FROM read_parquet('routes.parquet') ${where}`
   );
@@ -1741,7 +2081,7 @@ const updateStats = async (countOverride) => {
   if (!state.conn || !elements.statsGrid) {
     return;
   }
-  const where = buildWhere();
+  const where = buildWhere(getCurrentFilters());
   setStatsHint("Updating stats...");
   try {
     const summary = await queryStatsSummary(where);
@@ -1860,7 +2200,7 @@ const loadMetadata = async (config) => {
   updateEvidence();
   updateScopeChips();
   if (state.map && metadata?.bbox && getFeatureFlag(state.config, "autoFitBounds", true)) {
-    fitMapToBbox(metadata.bbox, "Fitting to dataset bounds...");
+    fitMapToBbox(state.map, metadata.bbox, "Fitting to dataset bounds...", setStatus);
   }
 };
 
@@ -1999,7 +2339,7 @@ const init = async () => {
     }
     initTabs();
     resetStats();
-    renderTable();
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
     if (!state.tableEventsBound && elements.dataTableBody) {
       state.tableEventsBound = true;
       elements.dataTableBody.addEventListener("click", (event) => {
@@ -2019,7 +2359,7 @@ const init = async () => {
         const rowServiceId = row.serviceId ?? "";
         setSelection({ properties: row }, `serviceId:${rowServiceId}`);
         syncSelectedLayer();
-        renderTable();
+        renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
       });
     }
     if (elements.dataTableScroll) {
@@ -2028,7 +2368,7 @@ const init = async () => {
         if (timer) window.clearTimeout(timer);
         timer = window.setTimeout(() => {
           timer = null;
-          renderTable();
+          renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
         }, 16);
       });
     }
@@ -2056,7 +2396,7 @@ const init = async () => {
       elements.bboxFilter.checked = false;
       elements.bboxFilter.disabled = true;
       state.tableRows = [];
-      renderTable();
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
       setPreview("Map ready. DuckDB failed to start, so table/stats/exports are disabled.");
       setStatus(duckdbError.message);
       if (state.config?.geojsonFile) {
@@ -2065,7 +2405,7 @@ const init = async () => {
           state.lastPreviewGeojson = geojson;
           updateOverlay(geojson);
           state.tableRows = geojson.features.slice(0, state.tableLimit).map((feature) => feature.properties || {});
-          renderTable();
+          renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
           setPreview(`GeoJSON preview: ${formatCount(geojson.features.length)} routes (preview only).`);
           setStatus("DuckDB unavailable; using GeoJSON preview for table/selection.");
         } catch (previewError) {
