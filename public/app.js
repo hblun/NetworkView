@@ -9,6 +9,8 @@ const elements = {
   mapSnapshot: document.getElementById("map-snapshot"),
   modeFilter: document.getElementById("mode-filter"),
   operatorFilter: document.getElementById("operator-filter"),
+  laFilter: document.getElementById("la-filter"),
+  rptFilter: document.getElementById("rpt-filter"),
   bboxFilter: document.getElementById("bbox-filter"),
   advancedToggle: document.getElementById("advanced-toggle"),
   advancedToggleIcon: document.getElementById("advanced-toggle-icon"),
@@ -78,17 +80,27 @@ const state = {
   columns: [],
   modeField: "mode",
   operatorFields: ["operatorCode", "operatorName", "operator"],
+  laField: "",
+  laNameField: "",
+  rptField: "",
+  rptNameField: "",
   lastQuery: null,
   tileFields: {
     serviceId: "",
     serviceName: "",
     mode: "",
     operatorCode: "",
-    operatorName: ""
+    operatorName: "",
+    laCode: "",
+    rptCode: ""
   },
   tableRows: [],
   tableLimit: 250,
-  pendingPreviewGeojson: null
+  pendingPreviewGeojson: null,
+  boundaryLayers: {
+    la: null,
+    rpt: null
+  }
 };
 
 const ROUTE_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 0.9, 8, 1.3, 11, 2.2, 14, 3.6];
@@ -1083,6 +1095,36 @@ const fillSelect = (select, options, formatter, includeNone = true) => {
   });
 };
 
+const fillSingleSelect = (select, options, formatter) => {
+  select.innerHTML = "";
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = "All";
+  select.appendChild(allOption);
+
+  const noneOption = document.createElement("option");
+  noneOption.value = NONE_OPTION_VALUE;
+  noneOption.textContent = "(unknown)";
+  select.appendChild(noneOption);
+
+  options.forEach((option) => {
+    const opt = document.createElement("option");
+    const formatted = formatter(option);
+    opt.value = formatted.value;
+    opt.textContent = formatted.label;
+    select.appendChild(opt);
+  });
+};
+
+const setSelectPlaceholder = (select, label) => {
+  select.innerHTML = "";
+  const opt = document.createElement("option");
+  opt.value = "";
+  opt.textContent = label;
+  select.appendChild(opt);
+  select.disabled = true;
+};
+
 const resolveOperatorOption = (operator) => {
   const fields = state.operatorFields;
   if (operator.code && fields.includes("operatorCode")) {
@@ -1107,6 +1149,55 @@ const populateFilters = () => {
   const operators = normalizeOperators(state.metadata.operators);
   fillSelect(elements.modeFilter, modes, (mode) => ({ value: mode, label: mode }), true);
   fillSelect(elements.operatorFilter, operators, resolveOperatorOption, true);
+};
+
+const populateBoundaryFilters = async () => {
+  if (!state.conn) {
+    return;
+  }
+  if (elements.laFilter) {
+    if (!state.laField) {
+      setSelectPlaceholder(elements.laFilter, "Local Authority unavailable");
+    } else {
+      const laNameField = state.laNameField || state.laField;
+      const query = `
+        SELECT DISTINCT
+          ${quoteIdentifier(state.laField)} AS code,
+          ${quoteIdentifier(laNameField)} AS name
+        FROM read_parquet('routes.parquet')
+        WHERE ${quoteIdentifier(state.laField)} IS NOT NULL OR ${quoteIdentifier(laNameField)} IS NOT NULL
+        ORDER BY name
+      `;
+      const rows = (await state.conn.query(query)).toArray();
+      fillSingleSelect(elements.laFilter, rows, (row) => ({
+        value: row.code ?? row.name ?? "",
+        label: row.name ?? row.code ?? ""
+      }));
+      elements.laFilter.disabled = false;
+    }
+  }
+
+  if (elements.rptFilter) {
+    if (!state.rptField) {
+      setSelectPlaceholder(elements.rptFilter, "RTP unavailable");
+    } else {
+      const rptNameField = state.rptNameField || state.rptField;
+      const query = `
+        SELECT DISTINCT
+          ${quoteIdentifier(state.rptField)} AS code,
+          ${quoteIdentifier(rptNameField)} AS name
+        FROM read_parquet('routes.parquet')
+        WHERE ${quoteIdentifier(state.rptField)} IS NOT NULL OR ${quoteIdentifier(rptNameField)} IS NOT NULL
+        ORDER BY name
+      `;
+      const rows = (await state.conn.query(query)).toArray();
+      fillSingleSelect(elements.rptFilter, rows, (row) => ({
+        value: row.code ?? row.name ?? "",
+        label: row.name ?? row.code ?? ""
+      }));
+      elements.rptFilter.disabled = false;
+    }
+  }
 };
 
 const loadDeck = async () => {
@@ -1200,6 +1291,41 @@ const initMap = (config) => {
     });
 
   map.on("load", () => {
+    const addBoundaryLayer = (key, configKey, layerKey, color, codeField) => {
+      const file = config[configKey];
+      if (!file) {
+        return;
+      }
+      const sourceId = `boundaries-${key}`;
+      const layerId = `boundaries-${key}-outline`;
+      const sourceLayer = config[layerKey] || key;
+      const pmtilesUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, file));
+      map.addSource(sourceId, {
+        type: "vector",
+        url: `pmtiles://${pmtilesUrl}`
+      });
+      map.addLayer({
+        id: layerId,
+        type: "line",
+        source: sourceId,
+        "source-layer": sourceLayer,
+        filter: ["==", ["get", "__never__"], "__never__"],
+        paint: {
+          "line-color": color,
+          "line-width": 2,
+          "line-opacity": 0.75
+        }
+      });
+      state.boundaryLayers[key] = {
+        sourceId,
+        layerId,
+        codeField: config[codeField] || "code"
+      };
+    };
+
+    addBoundaryLayer("la", "boundariesLaPmtiles", "boundariesLaLayer", "#1d4ed8", "boundariesLaCodeField");
+    addBoundaryLayer("rpt", "boundariesRptPmtiles", "boundariesRptLayer", "#15803d", "boundariesRptCodeField");
+
     if (config.pmtilesFile) {
       const pmtilesUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.pmtilesFile));
       setStatus("Loading route tiles...");
@@ -1238,6 +1364,12 @@ const initMap = (config) => {
             "line-color": "#f59e0b",
             "line-width": SELECTED_LINE_WIDTH,
             "line-opacity": 0.95
+          }
+        });
+
+        Object.values(state.boundaryLayers).forEach((entry) => {
+          if (entry?.layerId && map.getLayer(entry.layerId)) {
+            map.moveLayer(entry.layerId);
           }
         });
       };
@@ -1355,6 +1487,12 @@ const initMap = (config) => {
           "line-color": "#f59e0b",
           "line-width": SELECTED_LINE_WIDTH,
           "line-opacity": 0.95
+        }
+      });
+
+      Object.values(state.boundaryLayers).forEach((entry) => {
+        if (entry?.layerId && map.getLayer(entry.layerId)) {
+          map.moveLayer(entry.layerId);
         }
       });
     } else {
@@ -1487,6 +1625,8 @@ const detectTileFieldsFromRendered = () => {
   state.tileFields.mode = state.tileFields.mode || resolve(["mode", "serviceMode"]);
   state.tileFields.operatorCode = state.tileFields.operatorCode || resolve(["operatorCode", "operator_code"]);
   state.tileFields.operatorName = state.tileFields.operatorName || resolve(["operatorName", "operator_name", "operator"]);
+  state.tileFields.laCode = state.tileFields.laCode || resolve(["la_code", "laCode", "la"]);
+  state.tileFields.rptCode = state.tileFields.rptCode || resolve(["rpt_code", "rptCode", "rpt"]);
 };
 
 const detectSchemaFields = (columns) => {
@@ -1503,6 +1643,10 @@ const detectSchemaFields = (columns) => {
   };
   const modeCandidates = ["mode", "serviceMode"];
   const operatorCandidates = ["operatorCode", "operatorName", "operator"];
+  const laCodeCandidates = ["la_code", "laCode", "la"];
+  const laNameCandidates = ["la_name", "laName", "local_authority"];
+  const rptCodeCandidates = ["rpt_code", "rptCode", "rpt"];
+  const rptNameCandidates = ["rpt_name", "rptName"];
   const bboxCandidates = {
     minx: ["bbox_minx", "minx", "xmin", "min_lon", "min_lng"],
     miny: ["bbox_miny", "miny", "ymin", "min_lat"],
@@ -1512,6 +1656,10 @@ const detectSchemaFields = (columns) => {
 
   state.modeField = findColumn(modeCandidates);
   state.operatorFields = operatorCandidates.map((name) => findColumn([name])).filter(Boolean);
+  state.laField = findColumn(laCodeCandidates);
+  state.laNameField = findColumn(laNameCandidates);
+  state.rptField = findColumn(rptCodeCandidates);
+  state.rptNameField = findColumn(rptNameCandidates);
   state.geojsonField = findColumn(["geojson"]);
   const bboxFields = {
     minx: findColumn(bboxCandidates.minx),
@@ -1678,9 +1826,12 @@ const initDuckDb = async (config) => {
   } else {
     setStatus("DuckDB ready. Using precomputed GeoJSON for previews.");
   }
+
+  await populateBoundaryFilters();
 };
 
 const getSelectedValues = (select) => Array.from(select.selectedOptions).map((opt) => opt.value);
+const getSelectedValue = (select) => (select ? select.value : "");
 
 const getSelectedOperators = () =>
   Array.from(elements.operatorFilter.selectedOptions).map((opt) => ({
@@ -1692,7 +1843,9 @@ const hasAttributeFilters = () => {
   const modes = getSelectedValues(elements.modeFilter);
   const operators = getSelectedOperators();
   const serviceSearch = getServiceSearchValue();
-  return modes.length > 0 || operators.length > 0 || Boolean(serviceSearch);
+  const laValue = getSelectedValue(elements.laFilter);
+  const rptValue = getSelectedValue(elements.rptFilter);
+  return modes.length > 0 || operators.length > 0 || Boolean(serviceSearch) || Boolean(laValue) || Boolean(rptValue);
 };
 
 const buildWhere = () => {
@@ -1700,6 +1853,8 @@ const buildWhere = () => {
   const modes = getSelectedValues(elements.modeFilter);
   const operators = getSelectedOperators();
   const serviceSearch = getServiceSearchValue();
+  const laValue = getSelectedValue(elements.laFilter);
+  const rptValue = getSelectedValue(elements.rptFilter);
 
   if (modes.length) {
     const hasNone = modes.includes(NONE_OPTION_VALUE);
@@ -1764,6 +1919,22 @@ const buildWhere = () => {
     }
   }
 
+  if (laValue && state.laField) {
+    if (laValue === NONE_OPTION_VALUE) {
+      clauses.push(`(${quoteIdentifier(state.laField)} IS NULL OR ${quoteIdentifier(state.laField)} = '')`);
+    } else {
+      clauses.push(`${quoteIdentifier(state.laField)} = '${escapeSql(laValue)}'`);
+    }
+  }
+
+  if (rptValue && state.rptField) {
+    if (rptValue === NONE_OPTION_VALUE) {
+      clauses.push(`(${quoteIdentifier(state.rptField)} IS NULL OR ${quoteIdentifier(state.rptField)} = '')`);
+    } else {
+      clauses.push(`${quoteIdentifier(state.rptField)} = '${escapeSql(rptValue)}'`);
+    }
+  }
+
   if (state.spatialReady && state.geometryField && elements.bboxFilter.checked && state.map) {
     const bounds = state.map.getBounds();
     const minx = bounds.getWest();
@@ -1806,6 +1977,8 @@ const buildMapFilter = () => {
   ]);
   const serviceIdKeys = mapCandidateKeys(state.tileFields.serviceId, ["serviceId", "service_id", "id", "routeId"]);
   const serviceNameKeys = mapCandidateKeys(state.tileFields.serviceName, ["serviceName", "service_name", "name"]);
+  const laKeys = mapCandidateKeys(state.tileFields.laCode, ["la_code", "laCode", "la"]);
+  const rptKeys = mapCandidateKeys(state.tileFields.rptCode, ["rpt_code", "rptCode", "rpt"]);
 
   const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
   if (modes.length && modeKeys.length) {
@@ -1839,17 +2012,66 @@ const buildMapFilter = () => {
     }
   }
 
+  const laValue = getSelectedValue(elements.laFilter);
+  if (laValue && laKeys.length) {
+    const value = coalesceGet(laKeys, "");
+    if (laValue === NONE_OPTION_VALUE) {
+      expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+    } else {
+      expressions.push(["==", ["to-string", value], String(laValue)]);
+    }
+  }
+
+  const rptValue = getSelectedValue(elements.rptFilter);
+  if (rptValue && rptKeys.length) {
+    const value = coalesceGet(rptKeys, "");
+    if (rptValue === NONE_OPTION_VALUE) {
+      expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+    } else {
+      expressions.push(["==", ["to-string", value], String(rptValue)]);
+    }
+  }
+
   return expressions.length === 1 ? null : expressions;
+};
+
+const updateBoundaryHighlight = () => {
+  const map = state.map;
+  if (!map) {
+    return;
+  }
+  const update = (key, selectedValue) => {
+    const info = state.boundaryLayers[key];
+    if (!info || !map.getLayer(info.layerId)) {
+      return;
+    }
+    if (!selectedValue) {
+      map.setFilter(info.layerId, ["==", ["get", "__never__"], "__never__"]);
+      return;
+    }
+    const field = info.codeField || "code";
+    if (selectedValue === NONE_OPTION_VALUE) {
+      map.setFilter(info.layerId, ["any", ["!", ["has", field]], ["==", ["to-string", ["get", field]], ""]]);
+      return;
+    }
+    map.setFilter(info.layerId, ["==", ["to-string", ["get", field]], String(selectedValue)]);
+  };
+
+  update("la", getSelectedValue(elements.laFilter));
+  update("rpt", getSelectedValue(elements.rptFilter));
 };
 
 const applyMapFilters = () => {
   const map = state.map;
-  if (!map || !map.getLayer(state.baseLayerId)) {
+  if (!map) {
     return;
   }
-  const filter = buildMapFilter();
-  map.setFilter(state.baseLayerId, filter);
-  syncSelectedLayer();
+  if (map.getLayer(state.baseLayerId)) {
+    const filter = buildMapFilter();
+    map.setFilter(state.baseLayerId, filter);
+    syncSelectedLayer();
+  }
+  updateBoundaryHighlight();
 };
 
 const syncSelectedLayer = () => {
@@ -2299,11 +2521,17 @@ const updateScopeChips = () => {
   const operators = getSelectedOperators()
     .map((o) => o.value)
     .filter((o) => o && o !== NONE_OPTION_VALUE);
+  const laSelection = getSelectedValue(elements.laFilter);
+  const rptSelection = getSelectedValue(elements.rptFilter);
+  const laLabel = elements.laFilter?.selectedOptions?.[0]?.textContent || "";
+  const rptLabel = elements.rptFilter?.selectedOptions?.[0]?.textContent || "";
   const search = getServiceSearchValue();
   const bbox = elements.bboxFilter?.checked ? "Viewport" : "";
 
   if (modes.length) chips.push({ key: "modes", icon: "directions_bus", label: `Mode: ${modes.join(", ")}` });
   if (operators.length) chips.push({ key: "ops", icon: "apartment", label: `Operator: ${operators.join(", ")}` });
+  if (laSelection) chips.push({ key: "la", icon: "place", label: `LA: ${laLabel || laSelection}` });
+  if (rptSelection) chips.push({ key: "rpt", icon: "hub", label: `RTP: ${rptLabel || rptSelection}` });
   if (search) chips.push({ key: "search", icon: "search", label: `Search: ${search}` });
   if (bbox) chips.push({ key: "bbox", icon: "crop_free", label: `Limit: ${bbox}` });
 
@@ -2328,6 +2556,10 @@ const updateScopeChips = () => {
       if (elements.serviceSearch) elements.serviceSearch.value = "";
     } else if (key === "bbox") {
       if (elements.bboxFilter && !elements.bboxFilter.disabled) elements.bboxFilter.checked = false;
+    } else if (key === "la") {
+      if (elements.laFilter) elements.laFilter.value = "";
+    } else if (key === "rpt") {
+      if (elements.rptFilter) elements.rptFilter.value = "";
     }
     onApplyFilters();
   };
@@ -2689,6 +2921,12 @@ const onClearFilters = () => {
   Array.from(elements.operatorFilter.options).forEach((opt) => {
     opt.selected = false;
   });
+  if (elements.laFilter) {
+    elements.laFilter.value = "";
+  }
+  if (elements.rptFilter) {
+    elements.rptFilter.value = "";
+  }
   if (elements.serviceSearch) {
     elements.serviceSearch.value = "";
   }

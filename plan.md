@@ -404,6 +404,7 @@ Once those two are working, you’ll have a genuinely usable planner tool.
 - No automated verification scripts exist yet; the earliest follow-ups should include smoke checks for metadata/parquet freshness and a short “does `config.json` still point to the right R2 bucket?” routine.
 - Updated the `public/` UI to make Phase 2 workflows tangible: real Scope chips, DuckDB-backed Data Inspector table, MapLibre layer filtering (attribute + search) and a selected-route highlight layer, plus evidence + share-state wiring.
 - Added a local Range-enabled dev server at `tools/dev_server.py` and a GeoJSON preview loader as a temporary fallback when DuckDB assets aren’t available.
+- Wired LA/RTP clip controls into the UI (filters + scope chips) and added MapLibre boundary highlight layers driven by `boundaries_*.pmtiles` config entries.
 
 ### Progress mapping (Phase 2 MVP surface)
 Completed (implemented in `public/` runtime)
