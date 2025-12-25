@@ -8,6 +8,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
+    "test:e2e": "node tests/e2e/filtering.e2e.js",
     "lint": "eslint public/**/*.js tools/**/*.py",
     "lint:fix": "eslint --fix public/**/*.js"
   },
@@ -25,6 +26,7 @@
     "@vitest/ui": "^1.0.0",
     "eslint": "^8.55.0",
     "jsdom": "^27.3.0",
+    "playwright": "^1.49.0",
     "vitest": "^1.0.0"
   }
 }

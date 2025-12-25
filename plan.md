@@ -25,6 +25,7 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - Phase 3 integration check: `initDuckDb` now requires `duckdb` + `setStatus`; missing args caused DuckDB init to fail at runtime while unit tests still passed. Added app wiring tests to catch these runtime-only regressions.
 - Phase 3 integration check: map filter wiring must pass detected `tileFields` into `buildMapFilter`; missing tileFields caused runtime crashes when MapLibre fired idle events before detection.
 - DuckDB-WASM spatial extension now sets home/extension directories to avoid `/home/web_user` errors in browser FS.
+- E2E coverage added: Playwright filter walkthrough (all modes, one operator, one LA, one RPT) wired into CI.
 
 
 ## Architecture overview
