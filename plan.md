@@ -386,3 +386,42 @@ Once those two are working, you’ll have a genuinely usable planner tool.
 ### Follow-up
 - Added `BASELINE.md` to capture this snapshot (assets, dependencies, run commands, limitations) so future updates can compare against today’s working surface.
 - No automated verification scripts exist yet; the earliest follow-ups should include smoke checks for metadata/parquet freshness and a short “does `config.json` still point to the right R2 bucket?” routine.
+- Updated the `public/` UI to make Phase 2 workflows tangible: real Scope chips, DuckDB-backed Data Inspector table, MapLibre layer filtering (attribute + search) and a selected-route highlight layer, plus evidence + share-state wiring.
+- Added a local Range-enabled dev server at `tools/dev_server.py` and a GeoJSON preview loader as a temporary fallback when DuckDB assets aren’t available.
+
+### UI functional backlog (Phase 2 focus)
+Goal: make the existing `public/` UI “real” (filters → map → table → inspector → exports) without introducing a bundler yet.
+
+#### 0) Data contract checks (blockers for true Phase 2 “clip + filters”)
+- Verify that `routes.pmtiles` tile feature properties include at least `serviceId`, `serviceName`, `operatorCode`, `operatorName` (or lookup key), `mode` so MapLibre filters can mirror DuckDB filters (key design decision above).
+- Add `la_code` / `rpt_code` (or equivalent) to **both** `routes.pmtiles` and `routes.parquet` before building LA/RPT clip UI. Current `routes.parquet` does not contain these fields, so clip cannot be truthful yet.
+- If we want viewport limiting without DuckDB spatial: add precomputed `bbox_minx/bbox_miny/bbox_maxx/bbox_maxy` columns to `routes.parquet` (and/or a `geojson` column for preview) via the data pipeline.
+
+#### 1) Make the “Scope” UI reflect actual state (Phase 2 filter chips)
+- Replace the static “Scope” chips with real chips for active filters: clip (LA/RPT), mode, operator, viewport-limit, and service search.
+- Wire “Clear All” and per-chip remove to reset state + refresh map/table/stats.
+
+#### 2) Map filtering should be MapLibre-first (Phase 2 key decision)
+- Implement MapLibre `setFilter()` on the `routes-line` layer based on active filter state (mode/operator/service search/clip).
+- Add a dedicated highlight layer for the selected `serviceId` so selection is visible without Deck.gl.
+- Keep DuckDB-WASM for table/stats/exports; stop depending on DuckDB spatial for the in-map “filtered preview”.
+
+#### 3) Data Inspector table becomes real (Phase 2 linked table)
+- Replace the placeholder HTML table with a DuckDB-backed table that mirrors the active filters (and clip), including row count and basic columns (service name/id, operator, mode, direction).
+- Add row click → map highlight + populate inspector; map click → set selected row (best-effort) via `queryRenderedFeatures`.
+- Add minimal pagination or “Load more” (virtualisation can wait until we see performance pain at real scale).
+
+#### 4) Inspector card matches Phase 2 expectations
+- Expand selection details to include copy-to-clipboard for `serviceId` and `operatorCode`.
+- Show external links (`traveline_url`, `timetable_pdf_url`) only when present in data; otherwise hide actions (graceful degradation).
+
+#### 5) Evidence strip + exports are trustworthy (Phase 2 evidence + CSV)
+- Add an evidence bar (can live where the bottom blue strip is) that prints: active scope, filters, `metadata.generatedAt/lastUpdated`, and a dataset identifier/version if available.
+- Ensure CSV export uses the same query/filters as the table (and clearly states any row caps in the evidence/status).
+
+#### 6) “Share” = save/load map state JSON (Phase 2)
+- Implement “Share” as copyable JSON (and/or URL fragment) for current `MapState` (filters + map view + selection).
+- Add “Load state” affordance (can be a paste dialog) to restore a shared view.
+
+#### 7) Defer Phase 3 snapshot, but make UI honest
+- Keep “Map Snapshot” button visible, but if Phase 3 isn’t started: disable with a tooltip explaining it’s coming in Phase 3 (and what it will include).

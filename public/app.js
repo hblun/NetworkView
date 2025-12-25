@@ -5,14 +5,20 @@ import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0
 const elements = {
   datasetDate: document.getElementById("dataset-date"),
   datasetCount: document.getElementById("dataset-count"),
+  shareState: document.getElementById("share-state"),
+  mapSnapshot: document.getElementById("map-snapshot"),
   modeFilter: document.getElementById("mode-filter"),
   operatorFilter: document.getElementById("operator-filter"),
   bboxFilter: document.getElementById("bbox-filter"),
   applyFilters: document.getElementById("apply-filters"),
   clearFilters: document.getElementById("clear-filters"),
+  clearAll: document.getElementById("clear-all"),
+  scopeChips: document.getElementById("scope-chips"),
+  serviceSearch: document.getElementById("service-search"),
   loadSample: document.getElementById("load-sample"),
   downloadGeojson: document.getElementById("download-geojson"),
   downloadCsv: document.getElementById("download-csv"),
+  exportCsvTable: document.getElementById("export-csv-table"),
   colorByOperator: document.getElementById("color-by-operator"),
   statsGrid: document.getElementById("stats-grid"),
   statsModes: document.getElementById("stats-modes"),
@@ -21,7 +27,12 @@ const elements = {
   selectionDetails: document.getElementById("selection-details"),
   clearSelection: document.getElementById("clear-selection"),
   status: document.getElementById("status"),
-  previewCount: document.getElementById("preview-count")
+  previewCount: document.getElementById("preview-count"),
+  dataTableHead: document.getElementById("data-table-head"),
+  dataTableBody: document.getElementById("data-table-body"),
+  dataTableEmpty: document.getElementById("data-table-empty"),
+  evidenceLeft: document.getElementById("evidence-left"),
+  evidenceRight: document.getElementById("evidence-right")
 };
 
 const NONE_OPTION_VALUE = "__NONE__";
@@ -41,6 +52,7 @@ const state = {
   bboxReady: false,
   pendingGeojson: null,
   baseLayerId: "routes-line",
+  selectedLayerId: "routes-selected",
   baseLayerPaint: { opacity: 0.65, width: 1.2 },
   baseLayerFiltered: false,
   overlayVersion: 0,
@@ -52,7 +64,16 @@ const state = {
   columns: [],
   modeField: "mode",
   operatorFields: ["operatorCode", "operatorName", "operator"],
-  lastQuery: null
+  lastQuery: null,
+  tileFields: {
+    serviceId: "",
+    serviceName: "",
+    mode: "",
+    operatorCode: "",
+    operatorName: ""
+  },
+  tableRows: [],
+  tableLimit: 250
 };
 
 const escapeSql = (value) => String(value).replace(/'/g, "''");
@@ -60,6 +81,9 @@ const quoteIdentifier = (value) => `"${String(value).replace(/"/g, '""')}"`;
 
 const joinUrl = (base, path) => {
   if (!base) {
+    return path;
+  }
+  if (typeof path === "string" && (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("/"))) {
     return path;
   }
   return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
@@ -74,6 +98,14 @@ const toAbsoluteUrl = (value) => {
   } catch (error) {
     return value;
   }
+};
+
+const getFeatureFlag = (config, name, defaultValue = false) => {
+  const features = config?.features || config?.ui?.features || {};
+  if (Object.prototype.hasOwnProperty.call(features, name)) {
+    return Boolean(features[name]);
+  }
+  return Boolean(defaultValue);
 };
 
 const getFilename = (value) => {
@@ -120,6 +152,49 @@ const setPreview = (message) => {
   elements.previewCount.textContent = message;
 };
 
+const applyFeatureFlags = (config) => {
+  const nodes = Array.from(document.querySelectorAll("[data-feature]"));
+  nodes.forEach((node) => {
+    const name = node.getAttribute("data-feature");
+    if (!name) {
+      return;
+    }
+    const enabled = getFeatureFlag(config, name, false);
+    node.hidden = !enabled;
+  });
+
+  // Keep action buttons consistent with feature-gated visibility.
+  const exportCsvEnabled = getFeatureFlag(config, "exportCsv", true);
+  if (elements.downloadCsv) {
+    elements.downloadCsv.hidden = !exportCsvEnabled;
+  }
+  if (elements.exportCsvTable) {
+    elements.exportCsvTable.hidden = !exportCsvEnabled;
+  }
+};
+
+const copyText = async (value) => {
+  const text = String(value ?? "");
+  if (!text) {
+    return false;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    // Fallback for non-secure contexts.
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand("copy");
+    textarea.remove();
+    return ok;
+  }
+};
+
 const withTimeout = (promise, ms, message) => {
   let timer = null;
   const timeout = new Promise((_, reject) => {
@@ -135,9 +210,13 @@ const withTimeout = (promise, ms, message) => {
 const toggleActionButtons = (enabled) => {
   elements.applyFilters.disabled = !enabled;
   elements.clearFilters.disabled = !enabled;
-  const geojsonAvailable = state.geojsonField || (state.spatialReady && state.geometryField);
-  elements.downloadGeojson.disabled = !enabled || !geojsonAvailable;
-  elements.downloadCsv.disabled = !enabled;
+  const duckdbReady = enabled && Boolean(state.conn);
+  const geojsonAvailable = duckdbReady && (state.geojsonField || (state.spatialReady && state.geometryField));
+  elements.downloadGeojson.disabled = !geojsonAvailable;
+  elements.downloadCsv.disabled = !duckdbReady;
+  if (elements.exportCsvTable) {
+    elements.exportCsvTable.disabled = !duckdbReady;
+  }
 };
 
 const formatCount = (value) => {
@@ -240,8 +319,13 @@ const getProp = (props, name) => {
     return props[name];
   }
   const lower = String(name).toLowerCase();
+  const normalized = lower.replace(/[^a-z0-9]/g, "");
   for (const key of Object.keys(props)) {
-    if (String(key).toLowerCase() === lower) {
+    const keyLower = String(key).toLowerCase();
+    if (keyLower === lower) {
+      return props[key];
+    }
+    if (keyLower.replace(/[^a-z0-9]/g, "") === normalized) {
       return props[key];
     }
   }
@@ -258,6 +342,27 @@ const getFeatureKey = (feature, fallback = "") => {
     }
   }
   return fallback;
+};
+
+const getServiceSearchValue = () => {
+  const value = elements.serviceSearch?.value ?? "";
+  return String(value).trim();
+};
+
+const getSelectedServiceId = () => {
+  if (!state.selectedFeature) {
+    return null;
+  }
+  const props = state.selectedFeature.properties || {};
+  const candidates = [state.tileFields.serviceId, "serviceId", "service_id", "id"];
+  for (const key of candidates) {
+    if (!key) continue;
+    const value = getProp(props, key);
+    if (value !== undefined && value !== null && value !== "") {
+      return String(value);
+    }
+  }
+  return null;
 };
 
 const hslToRgb = (h, s, l) => {
@@ -424,7 +529,24 @@ const renderSelection = (feature) => {
     label.className = "selection-label";
     label.textContent = row.label;
     const value = document.createElement("span");
-    value.textContent = row.value;
+    value.className = "inline-flex items-center gap-2";
+    const text = document.createElement("span");
+    text.textContent = row.value;
+    value.appendChild(text);
+
+    if (row.label === "Service ID" || row.label === "Operator code") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className =
+        "h-5 w-5 inline-flex items-center justify-center rounded border border-border bg-white text-text-secondary hover:bg-surface-alt";
+      button.title = `Copy ${row.label}`;
+      button.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px">content_copy</span>';
+      button.addEventListener("click", async () => {
+        const ok = await copyText(row.value);
+        setStatus(ok ? `${row.label} copied.` : `Copy failed.`);
+      });
+      value.appendChild(button);
+    }
     wrapper.appendChild(label);
     wrapper.appendChild(value);
     elements.selectionDetails.appendChild(wrapper);
@@ -447,9 +569,8 @@ const clearSelection = () => {
   state.selectedFeature = null;
   state.selectedFeatureKey = null;
   renderSelection(null);
-  if (state.lastPreviewGeojson) {
-    updateOverlay(state.lastPreviewGeojson);
-  }
+  syncSelectedLayer();
+  renderTable();
 };
 
 const normalizeModes = (raw) => {
@@ -558,6 +679,17 @@ const initMap = (config) => {
 
   map.addControl(new maplibregl.NavigationControl(), "top-right");
 
+  map.on("error", (event) => {
+    const message = event?.error?.message;
+    if (!message) {
+      return;
+    }
+    // Avoid spamming status for harmless errors; surface likely load failures.
+    if (message.toLowerCase().includes("failed") || message.toLowerCase().includes("error")) {
+      setStatus(`Map error: ${message}`);
+    }
+  });
+
   let overlay = null;
   loadDeck()
     .then(({ MapboxOverlay }) => {
@@ -578,30 +710,94 @@ const initMap = (config) => {
     });
 
   map.on("load", () => {
-    if (!config.pmtilesFile) {
-      setStatus("PMTiles disabled. Map will show basemap only.");
+    if (config.pmtilesFile) {
+      const pmtilesUrl = joinUrl(config.dataBaseUrl, config.pmtilesFile);
+      map.addSource("routes", {
+        type: "vector",
+        url: `pmtiles://${pmtilesUrl}`
+      });
+
+      map.addLayer({
+        id: "routes-line",
+        type: "line",
+        source: "routes",
+        "source-layer": config.vectorLayer || "routes",
+        paint: {
+          "line-color": "#d6603b",
+          "line-width": 1.2,
+          "line-opacity": 0.65
+        }
+      });
+
+      map.addLayer({
+        id: state.selectedLayerId,
+        type: "line",
+        source: "routes",
+        "source-layer": config.vectorLayer || "routes",
+        filter: ["==", ["get", "__never__"], "__never__"],
+        paint: {
+          "line-color": "#f59e0b",
+          "line-width": 4,
+          "line-opacity": 0.95
+        }
+      });
+    } else if (config.geojsonFile) {
+      const geoUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.geojsonFile));
+      map.addSource("routes-geojson", {
+        type: "geojson",
+        data: geoUrl
+      });
+
+      map.addLayer({
+        id: "routes-line",
+        type: "line",
+        source: "routes-geojson",
+        paint: {
+          "line-color": "#165570",
+          "line-width": 1.6,
+          "line-opacity": 0.75
+        }
+      });
+
+      map.addLayer({
+        id: state.selectedLayerId,
+        type: "line",
+        source: "routes-geojson",
+        filter: ["==", ["get", "__never__"], "__never__"],
+        paint: {
+          "line-color": "#f59e0b",
+          "line-width": 4,
+          "line-opacity": 0.95
+        }
+      });
+    } else {
+      setStatus("No routes data configured (pmtilesFile/geojsonFile). Map will show basemap only.");
       return;
     }
-    const pmtilesUrl = joinUrl(config.dataBaseUrl, config.pmtilesFile);
-    map.addSource("routes", {
-      type: "vector",
-      url: `pmtiles://${pmtilesUrl}`
+
+    map.on("click", "routes-line", (event) => {
+      const features = event.features || [];
+      const feature = features[0];
+      if (!feature) {
+        clearSelection();
+        return;
+      }
+      setSelection(feature, getFeatureKey(feature));
+      syncSelectedLayer();
+      renderTable();
     });
 
-    map.addLayer({
-      id: "routes-line",
-      type: "line",
-      source: "routes",
-      "source-layer": config.vectorLayer || "routes",
-      paint: {
-        "line-color": "#d6603b",
-        "line-width": 1.2,
-        "line-opacity": 0.65
+    // Try to infer tile field names from rendered features for reliable filters.
+    const tryDetect = () => {
+      detectTileFieldsFromRendered();
+      applyMapFilters();
+    };
+    map.once("idle", tryDetect);
+    map.on("idle", () => {
+      if (!state.tileFields.serviceId || !state.tileFields.mode || !state.tileFields.operatorCode) {
+        tryDetect();
       }
     });
-
-    state.baseLayerPaint = { opacity: 0.65, width: 1.2 };
-    setBaseLayerFocus(state.baseLayerFiltered);
   });
 
   state.map = map;
@@ -614,10 +810,66 @@ const setBaseLayerFocus = (filtered) => {
   if (!map || !layerId || !map.getLayer(layerId)) {
     return;
   }
-  const opacity = filtered ? 0.18 : state.baseLayerPaint.opacity;
-  const width = filtered ? Math.max(0.8, state.baseLayerPaint.width - 0.4) : state.baseLayerPaint.width;
+  // MapLibre layer filters now do the heavy lifting; keep base paint stable.
+  const opacity = state.baseLayerPaint.opacity;
+  const width = state.baseLayerPaint.width;
   map.setPaintProperty(layerId, "line-opacity", opacity);
   map.setPaintProperty(layerId, "line-width", width);
+};
+
+const detectTileFieldsFromRendered = () => {
+  const map = state.map;
+  if (!map || !map.getLayer(state.baseLayerId)) {
+    return;
+  }
+  const candidates = [];
+  const canvas = map.getCanvas();
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const points = [
+    [w * 0.5, h * 0.5],
+    [w * 0.25, h * 0.5],
+    [w * 0.75, h * 0.5],
+    [w * 0.5, h * 0.25],
+    [w * 0.5, h * 0.75]
+  ];
+  points.forEach(([x, y]) => {
+    const features = map.queryRenderedFeatures(
+      [
+        [x - 6, y - 6],
+        [x + 6, y + 6]
+      ],
+      { layers: [state.baseLayerId] }
+    );
+    if (features && features.length) {
+      candidates.push(...features.slice(0, 3));
+    }
+  });
+  if (!candidates.length) {
+    return;
+  }
+
+  const keys = new Map();
+  candidates.forEach((feature) => {
+    const props = feature?.properties || {};
+    Object.keys(props).forEach((key) => {
+      keys.set(String(key).toLowerCase(), key);
+    });
+  });
+
+  const resolve = (names) => {
+    for (const name of names) {
+      const hit = keys.get(String(name).toLowerCase());
+      if (hit) return hit;
+    }
+    return "";
+  };
+
+  state.tileFields.serviceId = state.tileFields.serviceId || resolve(["serviceId", "service_id", "service"]);
+  state.tileFields.serviceName = state.tileFields.serviceName || resolve(["serviceName", "service_name", "name"]);
+  state.tileFields.mode = state.tileFields.mode || resolve(["mode", "serviceMode"]);
+  state.tileFields.operatorCode = state.tileFields.operatorCode || resolve(["operatorCode", "operator_code"]);
+  state.tileFields.operatorName = state.tileFields.operatorName || resolve(["operatorName", "operator_name", "operator"]);
 };
 
 const detectSchemaFields = (columns) => {
@@ -657,15 +909,18 @@ const detectSchemaFields = (columns) => {
 const initDuckDb = async (config) => {
   setStatus("Initializing DuckDB...");
   const baseUrl = config.duckdbBaseUrl || "";
-  const bundles = rebaseBundles(duckdb.getJsDelivrBundles(), baseUrl);
-  let bundle = null;
-  if (config.duckdbBundle && bundles[config.duckdbBundle]) {
-    bundle = bundles[config.duckdbBundle];
-  } else if (typeof window !== "undefined" && !window.crossOriginIsolated && bundles.mvp) {
-    bundle = bundles.mvp;
-  } else {
-    bundle = await duckdb.selectBundle(bundles);
-  }
+  const pickBundle = async (bundles) => {
+    if (config.duckdbBundle && bundles[config.duckdbBundle]) {
+      return bundles[config.duckdbBundle];
+    }
+    if (typeof window !== "undefined" && !window.crossOriginIsolated && bundles.mvp) {
+      return bundles.mvp;
+    }
+    return duckdb.selectBundle(bundles);
+  };
+
+  const rebasedBundles = rebaseBundles(duckdb.getJsDelivrBundles(), baseUrl);
+  let bundle = await pickBundle(rebasedBundles);
   const createDb = async (selected) => {
     setStatus("Loading DuckDB worker...");
     let worker = null;
@@ -698,26 +953,31 @@ const initDuckDb = async (config) => {
     );
     return db;
   };
-  try {
-    state.db = await createDb(bundle);
-  } catch (error) {
-    if (bundles.mvp) {
-      setStatus("DuckDB fallback (mvp) in use.");
-      bundle = bundles.mvp;
-      try {
+
+  const loadWithFallback = async () => {
+    try {
+      state.db = await createDb(bundle);
+      return;
+    } catch (error) {
+      // If a local duckdbBaseUrl is configured but assets are missing, retry using CDN bundles.
+      if (baseUrl) {
+        setStatus("DuckDB local assets missing; retrying via CDN...");
+        const cdnBundles = duckdb.getJsDelivrBundles();
+        bundle = await pickBundle(cdnBundles);
         state.db = await createDb(bundle);
-      } catch (fallbackError) {
-        const hint = baseUrl
-          ? `Check that ${baseUrl}/duckdb-browser-mvp.worker.js is accessible.`
-          : "Set duckdbBaseUrl to a local folder with DuckDB assets.";
-        throw new Error(`DuckDB worker failed to load. ${hint}`);
+        return;
       }
-    } else {
-      const hint = baseUrl
-        ? `Check that ${baseUrl}/duckdb-browser-mvp.worker.js is accessible.`
-        : "Set duckdbBaseUrl to a local folder with DuckDB assets.";
-      throw new Error(`DuckDB worker failed to load. ${hint}`);
+      throw error;
     }
+  };
+
+  try {
+    await loadWithFallback();
+  } catch (error) {
+    const hint = baseUrl
+      ? `DuckDB worker failed to load from '${baseUrl}'. Add DuckDB assets under public/${baseUrl}/ or set duckdbBaseUrl:'' to use CDN.`
+      : "DuckDB worker failed to load. If running locally, add DuckDB assets under public/duckdb (see README) or set duckdbBaseUrl:''.";
+    throw new Error(`${hint}`);
   }
 
   const conn = await state.db.connect();
@@ -818,13 +1078,15 @@ const getSelectedOperators = () =>
 const hasAttributeFilters = () => {
   const modes = getSelectedValues(elements.modeFilter);
   const operators = getSelectedOperators();
-  return modes.length > 0 || operators.length > 0;
+  const serviceSearch = getServiceSearchValue();
+  return modes.length > 0 || operators.length > 0 || Boolean(serviceSearch);
 };
 
 const buildWhere = () => {
   const clauses = [];
   const modes = getSelectedValues(elements.modeFilter);
   const operators = getSelectedOperators();
+  const serviceSearch = getServiceSearchValue();
 
   if (modes.length) {
     const hasNone = modes.includes(NONE_OPTION_VALUE);
@@ -874,6 +1136,21 @@ const buildWhere = () => {
     }
   }
 
+  if (serviceSearch) {
+    const lowered = escapeSql(serviceSearch.toLowerCase());
+    const like = `'%${lowered}%'`;
+    const searchClauses = [];
+    if ((state.columns || []).includes("serviceName")) {
+      searchClauses.push(`LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE ${like}`);
+    }
+    if ((state.columns || []).includes("serviceId")) {
+      searchClauses.push(`LOWER(CAST(${quoteIdentifier("serviceId")} AS VARCHAR)) LIKE ${like}`);
+    }
+    if (searchClauses.length) {
+      clauses.push(searchClauses.length > 1 ? `(${searchClauses.join(" OR ")})` : searchClauses[0]);
+    }
+  }
+
   if (state.spatialReady && state.geometryField && elements.bboxFilter.checked && state.map) {
     const bounds = state.map.getBounds();
     const minx = bounds.getWest();
@@ -901,6 +1178,73 @@ const buildWhere = () => {
     return "";
   }
   return `WHERE ${clauses.join(" AND ")}`;
+};
+
+const buildMapFilter = () => {
+  const expressions = ["all"];
+
+  const modeKey = state.tileFields.mode;
+  const operatorCodeKey = state.tileFields.operatorCode;
+  const operatorNameKey = state.tileFields.operatorName;
+  const serviceIdKey = state.tileFields.serviceId;
+  const serviceNameKey = state.tileFields.serviceName;
+
+  const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
+  if (modes.length && modeKey) {
+    expressions.push(["match", ["get", modeKey], modes, true, false]);
+  }
+
+  const operators = getSelectedOperators()
+    .map((item) => item.value)
+    .filter((value) => value && value !== NONE_OPTION_VALUE);
+  if (operators.length) {
+    const operatorKey = operatorCodeKey || operatorNameKey;
+    if (operatorKey) {
+      expressions.push(["match", ["get", operatorKey], operators, true, false]);
+    }
+  }
+
+  const search = getServiceSearchValue().toLowerCase();
+  if (search) {
+    const clauses = [];
+    if (serviceNameKey) {
+      clauses.push(["in", search, ["downcase", ["to-string", ["coalesce", ["get", serviceNameKey], ""]]]]);
+    }
+    if (serviceIdKey) {
+      clauses.push(["in", search, ["downcase", ["to-string", ["coalesce", ["get", serviceIdKey], ""]]]]);
+    }
+    if (clauses.length === 1) {
+      expressions.push(clauses[0]);
+    } else if (clauses.length > 1) {
+      expressions.push(["any", ...clauses]);
+    }
+  }
+
+  return expressions.length === 1 ? null : expressions;
+};
+
+const applyMapFilters = () => {
+  const map = state.map;
+  if (!map || !map.getLayer(state.baseLayerId)) {
+    return;
+  }
+  const filter = buildMapFilter();
+  map.setFilter(state.baseLayerId, filter);
+};
+
+const syncSelectedLayer = () => {
+  const map = state.map;
+  if (!map || !map.getLayer(state.selectedLayerId)) {
+    return;
+  }
+  const serviceIdKey = state.tileFields.serviceId;
+  const serviceId =
+    serviceIdKey && state.selectedFeature ? getProp(state.selectedFeature.properties || {}, serviceIdKey) : null;
+  if (!serviceIdKey || !serviceId) {
+    map.setFilter(state.selectedLayerId, ["==", ["get", "__never__"], "__never__"]);
+    return;
+  }
+  map.setFilter(state.selectedLayerId, ["==", ["to-string", ["get", serviceIdKey]], String(serviceId)]);
 };
 
 const queryCount = async () => {
@@ -1123,6 +1467,282 @@ const queryCsv = async (limit = 50000) => {
   return lines.join("\n");
 };
 
+const getTableColumns = () => {
+  const available = new Set(state.columns || []);
+  const cols = [];
+  if (available.has("serviceName")) cols.push({ key: "serviceName", label: "Service" });
+  if (available.has("mode")) cols.push({ key: "mode", label: "Mode" });
+  if (available.has("operatorName")) cols.push({ key: "operatorName", label: "Operator" });
+  if (available.has("direction")) cols.push({ key: "direction", label: "Dir" });
+  if (available.has("busesPerHour")) cols.push({ key: "busesPerHour", label: "BPH", align: "right" });
+  if (available.has("serviceId")) cols.push({ key: "serviceId", label: "Service ID", mono: true });
+  return cols;
+};
+
+const renderTableHead = () => {
+  if (!elements.dataTableHead) {
+    return;
+  }
+  clearElement(elements.dataTableHead);
+  const cols = getTableColumns();
+  cols.forEach((col) => {
+    const th = document.createElement("th");
+    th.className =
+      "px-4 py-2 text-[10px] font-bold text-text-secondary uppercase tracking-wider border-b border-border" +
+      (col.align === "right" ? " text-right" : "");
+    th.textContent = col.label;
+    elements.dataTableHead.appendChild(th);
+  });
+};
+
+const renderTable = () => {
+  if (!elements.dataTableBody || !elements.dataTableEmpty) {
+    return;
+  }
+  renderTableHead();
+  clearElement(elements.dataTableBody);
+
+  const rows = state.tableRows || [];
+  const cols = getTableColumns();
+  elements.dataTableEmpty.style.display = rows.length ? "none" : "flex";
+
+  const selectedServiceId = getSelectedServiceId();
+
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    const rowServiceId = row.serviceId ?? null;
+    const isSelected = selectedServiceId && rowServiceId && String(rowServiceId) === String(selectedServiceId);
+    tr.className = isSelected
+      ? "bg-blue-50/60 hover:bg-blue-50 transition-colors cursor-pointer"
+      : "hover:bg-slate-50 transition-colors cursor-pointer";
+    tr.addEventListener("click", () => {
+      setSelection({ properties: row }, `serviceId:${rowServiceId ?? ""}`);
+      syncSelectedLayer();
+      renderTable();
+    });
+
+    cols.forEach((col) => {
+      const td = document.createElement("td");
+      td.className =
+        "px-4 py-2.5 text-text-secondary" +
+        (col.align === "right" ? " text-right font-mono" : "") +
+        (col.key === "serviceName" ? " font-medium text-text-main" : "") +
+        (col.mono ? " font-mono" : "");
+      const value = row[col.key];
+      td.textContent = value === null || value === undefined ? "" : String(value);
+      tr.appendChild(td);
+    });
+
+    elements.dataTableBody.appendChild(tr);
+  });
+};
+
+const normalizePreviewProps = (props) => {
+  const source = props || {};
+  const normalized = { ...source };
+  const mappings = [
+    ["service_id", "serviceId"],
+    ["serviceid", "serviceId"],
+    ["service_name", "serviceName"],
+    ["servicename", "serviceName"],
+    ["operator_code", "operatorCode"],
+    ["operatorcode", "operatorCode"],
+    ["operator_name", "operatorName"],
+    ["operatorname", "operatorName"]
+  ];
+  mappings.forEach(([from, to]) => {
+    if (normalized[to] !== undefined && normalized[to] !== null && normalized[to] !== "") {
+      return;
+    }
+    const value = getProp(source, from);
+    if (value !== undefined && value !== null && value !== "") {
+      normalized[to] = value;
+    }
+  });
+  return normalized;
+};
+
+const showGeojsonOnMap = (geojson) => {
+  const map = state.map;
+  if (!map || !geojson) {
+    return;
+  }
+  const sourceId = "routes-preview";
+  const layerId = "routes-preview-line";
+  const selectedId = "routes-preview-selected";
+  const bindKey = "_previewClickBound";
+
+  if (!map.getSource(sourceId)) {
+    map.addSource(sourceId, { type: "geojson", data: geojson });
+  } else {
+    const source = map.getSource(sourceId);
+    if (source && typeof source.setData === "function") {
+      source.setData(geojson);
+    }
+  }
+
+  if (!map.getLayer(layerId)) {
+    map.addLayer(
+      {
+        id: layerId,
+        type: "line",
+        source: sourceId,
+        paint: {
+          "line-color": "#165570",
+          "line-width": 2.6,
+          "line-opacity": 0.9
+        }
+      },
+      // If PMTiles layer exists, draw preview above it.
+      map.getLayer(state.selectedLayerId) ? state.selectedLayerId : undefined
+    );
+  }
+
+  if (!map.getLayer(selectedId)) {
+    map.addLayer({
+      id: selectedId,
+      type: "line",
+      source: sourceId,
+      filter: ["==", ["get", "__never__"], "__never__"],
+      paint: {
+        "line-color": "#f59e0b",
+        "line-width": 5,
+        "line-opacity": 0.95
+      }
+    });
+  }
+
+  if (!state[bindKey]) {
+    state[bindKey] = true;
+    map.on("click", layerId, (event) => {
+      const feature = event.features?.[0];
+      if (!feature) {
+        clearSelection();
+        return;
+      }
+      setSelection(feature, getFeatureKey(feature));
+      renderTable();
+      // best-effort highlight by serviceId if available
+      const serviceId = getSelectedServiceId();
+      const serviceKey = state.tileFields.serviceId || "serviceId";
+      if (serviceId) {
+        map.setFilter(selectedId, ["==", ["to-string", ["get", serviceKey]], serviceId]);
+      }
+    });
+  }
+};
+
+const queryTable = async (limit = 250) => {
+  const where = buildWhere();
+  const cols = getTableColumns().map((c) => c.key);
+  const selectList = cols.length ? cols.map(quoteIdentifier).join(", ") : "*";
+  const query = `
+    SELECT ${selectList}
+    FROM read_parquet('routes.parquet')
+    ${where}
+    ORDER BY ${state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "1"}
+    LIMIT ${limit}
+  `;
+  const result = await state.conn.query(query);
+  return result.toArray();
+};
+
+const updateScopeChips = () => {
+  if (!elements.scopeChips) {
+    return;
+  }
+  clearElement(elements.scopeChips);
+
+  const chips = [];
+  const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
+  const operators = getSelectedOperators()
+    .map((o) => o.value)
+    .filter((o) => o && o !== NONE_OPTION_VALUE);
+  const search = getServiceSearchValue();
+  const bbox = elements.bboxFilter?.checked ? "Viewport" : "";
+
+  if (modes.length) chips.push({ key: "modes", icon: "directions_bus", label: `Mode: ${modes.join(", ")}` });
+  if (operators.length) chips.push({ key: "ops", icon: "apartment", label: `Operator: ${operators.join(", ")}` });
+  if (search) chips.push({ key: "search", icon: "search", label: `Search: ${search}` });
+  if (bbox) chips.push({ key: "bbox", icon: "crop_free", label: `Limit: ${bbox}` });
+
+  if (!chips.length) {
+    const empty = document.createElement("div");
+    empty.className = "text-[11px] text-text-tertiary";
+    empty.textContent = "No active scope.";
+    elements.scopeChips.appendChild(empty);
+    return;
+  }
+
+  const removeFor = (key) => {
+    if (key === "modes") {
+      Array.from(elements.modeFilter.options).forEach((opt) => {
+        opt.selected = false;
+      });
+    } else if (key === "ops") {
+      Array.from(elements.operatorFilter.options).forEach((opt) => {
+        opt.selected = false;
+      });
+    } else if (key === "search") {
+      if (elements.serviceSearch) elements.serviceSearch.value = "";
+    } else if (key === "bbox") {
+      if (elements.bboxFilter && !elements.bboxFilter.disabled) elements.bboxFilter.checked = false;
+    }
+    onApplyFilters();
+  };
+
+  chips.forEach((chip) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className =
+      "inline-flex items-center gap-1.5 pl-2 pr-1 py-1 bg-slate-100 text-text-main border border-slate-200 rounded-full text-xs font-medium hover:bg-slate-200 transition-colors";
+    button.innerHTML = `
+      <span class="material-symbols-outlined text-[14px]">${chip.icon}</span>
+      <span>${chip.label}</span>
+      <span class="flex items-center justify-center h-4 w-4 rounded-full hover:bg-slate-300 ml-0.5" data-remove="1">
+        <span class="material-symbols-outlined text-[12px]">close</span>
+      </span>
+    `;
+    button.addEventListener("click", (event) => {
+      const remove = event.target?.closest?.("[data-remove]");
+      if (remove) {
+        event.preventDefault();
+        removeFor(chip.key);
+      }
+    });
+    elements.scopeChips.appendChild(button);
+  });
+};
+
+const updateEvidence = () => {
+  if (!elements.evidenceLeft || !elements.evidenceRight) {
+    return;
+  }
+  const meta = state.metadata || {};
+  const generatedAt = meta.generatedAt || meta.lastUpdated || "Unknown";
+  const total = meta.counts?.total ?? meta.total ?? null;
+  const where = buildWhere();
+  const hasFilters = Boolean(where);
+  const hint = hasFilters ? "Filtered view" : "Full dataset";
+
+  elements.evidenceLeft.innerHTML = "";
+  const leftParts = [
+    `Scope: <strong class="font-semibold">${hint}</strong>`,
+    total ? `Dataset rows: <strong class="font-semibold">${formatCount(total)}</strong>` : null,
+    `Updated: <strong class="font-semibold">${generatedAt}</strong>`
+  ].filter(Boolean);
+  elements.evidenceLeft.innerHTML = leftParts.map((p) => `<span>${p}</span>`).join("");
+
+  const map = state.map;
+  const center = map ? map.getCenter() : null;
+  const zoom = map ? map.getZoom() : null;
+  const rightParts = [
+    center ? `Lat: ${center.lat.toFixed(4)}, Lon: ${center.lng.toFixed(4)}` : null,
+    zoom !== null ? `Zoom: ${zoom.toFixed(2)}` : null
+  ].filter(Boolean);
+  elements.evidenceRight.textContent = rightParts.join(" | ");
+};
+
 const updateOverlay = (geojson) => {
   if (!state.overlay || !state.deck) {
     state.pendingGeojson = geojson;
@@ -1241,39 +1861,165 @@ const downloadFile = (content, filename, mime) => {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
-const onApplyFilters = async () => {
-  if (!state.conn) {
+const loadGeojsonPreview = async () => {
+  const config = state.config || {};
+  const geojsonPath = config.geojsonFile;
+  if (!geojsonPath) {
+    setStatus("No geojsonFile configured.");
     return;
   }
+  const url = toAbsoluteUrl(joinUrl(config.dataBaseUrl, geojsonPath));
+  const limit = Math.max(1, Math.min(Number(config.geojsonPreviewLimit ?? 500), 5000));
+
   toggleActionButtons(false);
-  setStatus("Querying filtered routes...");
+  setStatus(`Loading GeoJSON preview (first ${formatCount(limit)} features)...`);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`GeoJSON fetch failed (${response.status})`);
+  }
+  if (!response.body) {
+    // Fallback: full text (may be large).
+    const full = await response.json();
+    const features = Array.isArray(full.features) ? full.features.slice(0, limit) : [];
+    return { type: "FeatureCollection", features };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let inFeatures = false;
+  let depth = 0;
+  let current = "";
+  const features = [];
+
+  const pushFeatureIfComplete = () => {
+    if (!current.trim()) {
+      return;
+    }
+    try {
+      const feature = JSON.parse(current);
+      if (feature && feature.type === "Feature") {
+        features.push(feature);
+      }
+    } catch (error) {
+      // Ignore partial parses; this is a best-effort preview loader.
+    }
+  };
 
   try {
+    while (features.length < limit) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+      // Find the "features" array start once.
+      if (!inFeatures) {
+        const idx = buffer.indexOf('"features"');
+        if (idx === -1) {
+          if (done) break;
+          if (buffer.length > 1024 * 1024) {
+            buffer = buffer.slice(-1024 * 16);
+          }
+          continue;
+        }
+        const arrIdx = buffer.indexOf("[", idx);
+        if (arrIdx === -1) {
+          if (done) break;
+          continue;
+        }
+        buffer = buffer.slice(arrIdx + 1);
+        inFeatures = true;
+      }
+
+      // Extract feature objects by tracking brace depth.
+      for (let i = 0; i < buffer.length && features.length < limit; i += 1) {
+        const ch = buffer[i];
+        if (depth === 0) {
+          if (ch === "{") {
+            depth = 1;
+            current = "{";
+          } else if (ch === "]") {
+            // End of features array.
+            features.length = Math.min(features.length, limit);
+            buffer = buffer.slice(i + 1);
+            break;
+          }
+          continue;
+        }
+
+        current += ch;
+        if (ch === "{") depth += 1;
+        if (ch === "}") depth -= 1;
+
+        if (depth === 0) {
+          pushFeatureIfComplete();
+          current = "";
+        }
+      }
+
+      // Keep only unread tail when still streaming.
+      if (depth === 0) {
+        const lastBrace = buffer.lastIndexOf("}");
+        buffer = lastBrace !== -1 ? buffer.slice(lastBrace + 1) : "";
+      } else {
+        // Keep current partial object + a small tail.
+        buffer = current.length ? "" : buffer.slice(-1024 * 32);
+      }
+
+      if (done) break;
+    }
+  } finally {
+    if (features.length >= limit) {
+      try {
+        await reader.cancel();
+      } catch (error) {
+        // Ignore.
+      }
+    }
+  }
+
+  return { type: "FeatureCollection", features };
+};
+
+const onApplyFilters = async () => {
+  toggleActionButtons(false);
+  setStatus("Applying filters...");
+
+  try {
+    const filtered = hasAttributeFilters();
+    applyMapFilters();
+    setBaseLayerFocus(filtered);
+    updateScopeChips();
+    updateEvidence();
+
+    if (!state.conn) {
+      setPreview("Filters applied to map. DuckDB is unavailable, so table/stats/exports are disabled.");
+      renderTable();
+      return;
+    }
+
     const validation = validateFilters();
     if (validation) {
       setStatus(validation);
       return;
     }
-    const filtered = hasAttributeFilters();
+
     const count = await queryCount();
     const countNumber = toNumber(count);
     setPreview(`${formatCount(count)} routes in selection.`);
+
     if (countNumber === 0) {
       setStatus("No routes matched the current filters.");
-      const empty = { type: "FeatureCollection", features: [] };
-      state.lastPreviewGeojson = empty;
-      updateOverlay(empty);
-    } else if (state.spatialReady || state.geojsonField) {
-      const geojson = await queryGeoJson();
-      state.lastPreviewGeojson = geojson;
-      updateOverlay(geojson);
-      setStatus("Preview updated. Use download to export full selection.");
+      state.tableRows = [];
+      renderTable();
     } else {
-      state.lastPreviewGeojson = null;
-      setStatus("Filters applied. Spatial preview unavailable without spatial extension.");
+      setStatus("Filters applied. Table/stats updated.");
     }
-    setBaseLayerFocus(filtered);
+
     await updateStats(countNumber);
+    state.tableRows = await queryTable(state.tableLimit);
+    renderTable();
+    updateEvidence();
     state.lastQuery = { count: countNumber };
   } catch (error) {
     setStatus(`Query failed: ${error.message}`);
@@ -1289,25 +2035,46 @@ const onClearFilters = () => {
   Array.from(elements.operatorFilter.options).forEach((opt) => {
     opt.selected = false;
   });
+  if (elements.serviceSearch) {
+    elements.serviceSearch.value = "";
+  }
   setPreview("No filters applied.");
   if (state.overlay) {
     state.overlay.setProps({ layers: [] });
   }
   state.lastPreviewGeojson = null;
+  state.tableRows = [];
   clearSelection();
   setBaseLayerFocus(false);
+  applyMapFilters();
+  updateScopeChips();
+  renderTable();
   resetStats();
+  updateEvidence();
   setStatus("Filters cleared.");
 };
 
-const onLoadSample = () => {
-  const geojson = sampleGeojson();
-  state.lastPreviewGeojson = geojson;
-  updateOverlay(geojson);
-  setPreview(`Sample preview: ${geojson.features.length} routes.`);
-  setBaseLayerFocus(true);
-  setStatsHint("Sample preview loaded. Apply filters for real stats.");
-  setStatus("Sample preview loaded. Apply real filters once data is ready.");
+const onLoadSample = async () => {
+  try {
+    const geojson = await loadGeojsonPreview();
+    state.lastPreviewGeojson = geojson;
+    updateOverlay(geojson);
+    showGeojsonOnMap(geojson);
+    setPreview(`GeoJSON preview: ${formatCount(geojson.features.length)} routes (preview only).`);
+
+    // Populate a small table from the preview, even if DuckDB isn't running yet.
+    state.tableRows = geojson.features
+      .slice(0, state.tableLimit)
+      .map((feature) => normalizePreviewProps(feature.properties || {}));
+    renderTable();
+
+    setStatsHint("GeoJSON preview loaded. Use DuckDB for full stats/exports when available.");
+    setStatus("GeoJSON preview loaded.");
+  } catch (error) {
+    setStatus(`GeoJSON preview failed: ${error.message}`);
+  } finally {
+    toggleActionButtons(true);
+  }
 };
 
 const onDownloadGeojson = async () => {
@@ -1393,6 +2160,8 @@ const loadMetadata = async (config) => {
   elements.datasetDate.textContent = `Updated: ${dateValue}`;
   elements.datasetCount.textContent = total ? `${formatCount(total)} routes` : "";
   populateFilters();
+  updateEvidence();
+  updateScopeChips();
 };
 
 const initTabs = () => {
@@ -1456,11 +2225,13 @@ const init = async () => {
       throw new Error(`Config load failed (${configResponse.status})`);
     }
     state.config = await configResponse.json();
+    applyFeatureFlags(state.config);
 
     applyUiConfig(state.config);
     initMap(state.config);
     initTabs();
     resetStats();
+    renderTable();
     try {
       await loadMetadata(state.config);
     } catch (error) {
@@ -1468,14 +2239,69 @@ const init = async () => {
       elements.datasetCount.textContent = "";
       setStatus(`Metadata load failed: ${error.message}`);
     }
-    await initDuckDb(state.config);
-    populateFilters();
+
+    // Enable map-scoped filtering even if DuckDB fails to start.
+    toggleActionButtons(true);
+    updateEvidence();
+    updateScopeChips();
+
+    try {
+      await initDuckDb(state.config);
+      populateFilters();
+
+      const total = state.metadata?.counts?.total ?? state.metadata?.total ?? null;
+      const countNumber = total !== null && total !== undefined ? toNumber(total) : null;
+      if (countNumber !== null) {
+        setPreview(`${formatCount(countNumber)} routes in dataset.`);
+      } else {
+        setPreview("Dataset loaded.");
+      }
+      state.tableRows = await queryTable(state.tableLimit);
+      renderTable();
+      await updateStats(countNumber);
+      updateEvidence();
+    } catch (duckdbError) {
+      state.conn = null;
+      state.db = null;
+      elements.bboxFilter.checked = false;
+      elements.bboxFilter.disabled = true;
+      state.tableRows = [];
+      renderTable();
+      setPreview("Map ready. DuckDB failed to start, so table/stats/exports are disabled.");
+      setStatus(duckdbError.message);
+      if (state.config?.geojsonFile) {
+        try {
+          const geojson = await loadGeojsonPreview();
+          state.lastPreviewGeojson = geojson;
+          updateOverlay(geojson);
+          state.tableRows = geojson.features.slice(0, state.tableLimit).map((feature) => feature.properties || {});
+          renderTable();
+          setPreview(`GeoJSON preview: ${formatCount(geojson.features.length)} routes (preview only).`);
+          setStatus("DuckDB unavailable; using GeoJSON preview for table/selection.");
+        } catch (previewError) {
+          setStatus(`DuckDB unavailable; GeoJSON preview failed: ${previewError.message}`);
+        }
+      }
+    }
 
     elements.applyFilters.addEventListener("click", onApplyFilters);
     elements.clearFilters.addEventListener("click", onClearFilters);
+    if (elements.clearAll) {
+      elements.clearAll.addEventListener("click", onClearFilters);
+    }
     elements.loadSample.addEventListener("click", onLoadSample);
     elements.downloadGeojson.addEventListener("click", onDownloadGeojson);
     elements.downloadCsv.addEventListener("click", onDownloadCsv);
+    if (elements.exportCsvTable) {
+      elements.exportCsvTable.addEventListener("click", onDownloadCsv);
+    }
+    if (elements.serviceSearch) {
+      elements.serviceSearch.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          onApplyFilters();
+        }
+      });
+    }
     if (elements.colorByOperator) {
       elements.colorByOperator.addEventListener("change", () => {
         state.colorByOperator = Boolean(elements.colorByOperator.checked);
@@ -1486,6 +2312,38 @@ const init = async () => {
     }
     if (elements.clearSelection) {
       elements.clearSelection.addEventListener("click", clearSelection);
+    }
+    if (elements.mapSnapshot) {
+      elements.mapSnapshot.addEventListener("click", () => {
+        setStatus("Map Snapshot is planned for Phase 3 (report-ready PNG export).");
+      });
+    }
+    if (elements.shareState) {
+      elements.shareState.addEventListener("click", async () => {
+        const map = state.map;
+        const mapState = map
+          ? { center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom() }
+          : null;
+        const payload = {
+          version: 1,
+          generatedAt: new Date().toISOString(),
+          dataset: {
+            generatedAt: state.metadata?.generatedAt ?? null,
+            lastUpdated: state.metadata?.lastUpdated ?? null
+          },
+          map: mapState,
+          filters: {
+            modes: getSelectedValues(elements.modeFilter),
+            operators: getSelectedOperators(),
+            bbox: Boolean(elements.bboxFilter?.checked),
+            serviceSearch: getServiceSearchValue(),
+            colorByOperator: Boolean(elements.colorByOperator?.checked)
+          },
+          selection: state.selectedFeature ? { serviceId: getSelectedServiceId() } : null
+        };
+        const ok = await copyText(JSON.stringify(payload, null, 2));
+        setStatus(ok ? "Share state copied to clipboard (JSON)." : "Share copy failed.");
+      });
     }
 
     setStatus("Ready.");

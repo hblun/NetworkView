@@ -7,19 +7,19 @@ and supports client-side filtering + exports using DuckDB-WASM.
 1) Copy the sample config:
 
 ```
-cp frontend/public/config.sample.json frontend/public/config.json
+cp public/config.sample.json public/config.json
 ```
 
-2) Download DuckDB-WASM assets locally (avoids cross-origin worker errors):
+2) (Optional) Download DuckDB-WASM assets locally (avoids worker/CORS issues and reduces CDN dependency):
 
 ```
 bash tools/fetch_duckdb_assets.sh
 ```
 
-3) Start a local server (Range-enabled):
+3) Start a local dev server (Range-enabled, also mounts `data/` at `/data/`):
 
 ```
-python3 -m tools.dev_server --directory frontend/public --port 5137
+python3 -m tools.dev_server --public-dir public --data-dir data --port 5137
 ```
 
 4) Open:
@@ -28,13 +28,21 @@ python3 -m tools.dev_server --directory frontend/public --port 5137
 http://localhost:5137
 ```
 
-Use **Load sample preview** to see routes without any large data files.
+Use **Load GeoJSON preview** to stream a small subset from `config.geojsonFile` (useful when DuckDB isn’t available).
+
+## Feature flags
+UI elements that aren’t ready yet are hidden behind `public/config.json` feature flags:
+- `features.share`, `features.snapshot`
+- `features.insightsTab`, `features.reportingTab`
+- `features.layerToggles`
+- `features.exportGeojson`, `features.exportCsv`
+- `features.geojsonPreview`
 
 ## Build full data artifacts
 Use the helper script to generate metadata + parquet + pmtiles:
 
 ```
-./tools/build_frontend_data.sh data/scotland-bus-routes.geojson frontend/public
+./tools/build_frontend_data.sh data/scotland-bus-routes.geojson public
 ```
 
 Requirements:
