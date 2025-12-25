@@ -9,6 +9,7 @@ const setStatus = (message) => {
 window.addEventListener("error", (event) => {
   if (event?.message) {
     setStatus(`Error: ${event.message}`);
+    console.error("[NetworkView] Unhandled error", event.error || event.message);
   }
 });
 
@@ -16,11 +17,12 @@ window.addEventListener("unhandledrejection", (event) => {
   const reason = event?.reason;
   const message = reason?.message || String(reason || "Unknown error");
   setStatus(`Error: ${message}`);
+  console.error("[NetworkView] Unhandled rejection", reason || message);
 });
 
 setStatus("Booting up...");
 
-const APP_VERSION = "2025-12-25-4";
+const APP_VERSION = "2025-12-25-5";
 
 const loadApp = async () => {
   try {

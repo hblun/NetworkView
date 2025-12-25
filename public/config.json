@@ -16,7 +16,7 @@
   "tablePageSize": 500,
   "tableBrowseMax": 10000,
   "apiDocsUrl": "",
-  "vectorLayer": "scotlandbusroutes",
+  "vectorLayer": "routes",
   "duckdbBaseUrl": "",
   "basemapStyle": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
   "defaultView": {

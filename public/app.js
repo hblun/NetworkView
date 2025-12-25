@@ -91,6 +91,8 @@ const state = {
   rptField: "",
   rptNameField: "",
   lastQuery: null,
+  applyingFilters: false,
+  pendingFilterApply: false,
   tileFields: {
     serviceId: "",
     serviceName: "",
@@ -222,6 +224,34 @@ const setPreview = (message) => {
   elements.previewCount.textContent = message;
 };
 
+const activityLog = [];
+const logEvent = (level, message, detail = null) => {
+  const entry = {
+    at: new Date().toISOString(),
+    level,
+    message,
+    detail: detail || null
+  };
+  activityLog.push(entry);
+  if (activityLog.length > 400) {
+    activityLog.shift();
+  }
+  const logger = console[level] || console.log;
+  if (detail) {
+    logger(`[NetworkView] ${message}`, detail);
+  } else {
+    logger(`[NetworkView] ${message}`);
+  }
+};
+
+const logAction = (action, detail = null) => {
+  logEvent("info", action, detail);
+};
+
+if (typeof window !== "undefined") {
+  window.__NV_LOG = activityLog;
+}
+
 const applyFeatureFlags = (config) => {
   const nodes = Array.from(document.querySelectorAll("[data-feature]"));
   nodes.forEach((node) => {
@@ -240,6 +270,157 @@ const applyFeatureFlags = (config) => {
   }
   if (elements.exportCsvTable) {
     elements.exportCsvTable.hidden = !exportCsvEnabled;
+  }
+};
+
+const ADMIN_FEATURE_KEY = "networkview-feature-overrides";
+
+const isAdminMode = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const path = window.location.pathname || "";
+  const search = new URLSearchParams(window.location.search);
+  if (search.has("admin")) {
+    return true;
+  }
+  return /\/admin\/?$/.test(path) || /\/config\/?$/.test(path);
+};
+
+const loadFeatureOverrides = () => {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(ADMIN_FEATURE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    logEvent("warn", "Failed to read feature overrides.", { error: error.message });
+    return {};
+  }
+};
+
+const saveFeatureOverrides = (overrides) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(ADMIN_FEATURE_KEY, JSON.stringify(overrides || {}));
+  } catch (error) {
+    logEvent("warn", "Failed to save feature overrides.", { error: error.message });
+  }
+};
+
+const applyFeatureOverrides = (config) => {
+  const overrides = loadFeatureOverrides();
+  const base = { ...(config.features || {}) };
+  const merged = { ...base, ...overrides };
+  config.features = merged;
+  return { base, overrides, merged };
+};
+
+const ensureAdminPanel = () => {
+  let panel = document.getElementById("admin-panel");
+  if (panel) {
+    return panel;
+  }
+  panel = document.createElement("div");
+  panel.id = "admin-panel";
+  panel.className =
+    "fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-6";
+  panel.innerHTML = `
+    <div class="bg-white rounded-xl shadow-xl border border-border w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div class="px-5 py-4 border-b border-border flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-text-main">Admin: Feature Flags</h2>
+          <p class="text-xs text-text-tertiary">Overrides are stored in this browser only.</p>
+        </div>
+        <a href="/" class="text-xs text-primary hover:underline">Back to viewer</a>
+      </div>
+      <div class="px-5 py-4 overflow-auto" id="admin-feature-list"></div>
+      <div class="px-5 py-4 border-t border-border flex items-center justify-between bg-slate-50/60">
+        <div class="text-[11px] text-text-tertiary" id="admin-feature-summary"></div>
+        <div class="flex gap-2">
+          <button id="admin-reset" class="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-white">Reset overrides</button>
+          <button id="admin-close" class="px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-hover">Close</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+  return panel;
+};
+
+const renderAdminPanel = (config) => {
+  if (!isAdminMode()) {
+    return;
+  }
+  const panel = ensureAdminPanel();
+  const list = panel.querySelector("#admin-feature-list");
+  const summary = panel.querySelector("#admin-feature-summary");
+  const closeButton = panel.querySelector("#admin-close");
+  const resetButton = panel.querySelector("#admin-reset");
+
+  const baseFeatures = { ...(config.features || {}) };
+  const overrides = loadFeatureOverrides();
+  const merged = { ...baseFeatures, ...overrides };
+  const names = Array.from(new Set([...Object.keys(baseFeatures), ...Object.keys(overrides)])).sort();
+
+  if (!names.length) {
+    list.innerHTML = `<div class="text-sm text-text-tertiary">No feature flags found in config.</div>`;
+  } else {
+    list.innerHTML = "";
+    names.forEach((name) => {
+      const row = document.createElement("label");
+      row.className = "flex items-center justify-between gap-4 py-2 border-b border-border last:border-b-0";
+      const left = document.createElement("div");
+      left.innerHTML = `
+        <div class="text-sm font-medium text-text-main">${name}</div>
+        <div class="text-[11px] text-text-tertiary">
+          Base: ${baseFeatures[name] ? "on" : "off"}
+          ${Object.prototype.hasOwnProperty.call(overrides, name) ? "• overridden" : ""}
+        </div>
+      `;
+      const toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.className = "h-4 w-4 text-primary";
+      toggle.checked = Boolean(merged[name]);
+      toggle.addEventListener("change", () => {
+        overrides[name] = toggle.checked;
+        saveFeatureOverrides(overrides);
+        config.features = { ...baseFeatures, ...overrides };
+        applyFeatureFlags(config);
+        updateScopeChips();
+        logEvent("info", "Feature flag toggled.", { name, value: toggle.checked });
+        renderAdminPanel(config);
+      });
+      row.appendChild(left);
+      row.appendChild(toggle);
+      list.appendChild(row);
+    });
+  }
+
+  if (summary) {
+    summary.textContent = `${Object.keys(overrides).length} override(s) active.`;
+  }
+  if (closeButton) {
+    closeButton.onclick = () => {
+      panel.remove();
+    };
+  }
+  if (resetButton) {
+    resetButton.onclick = () => {
+      saveFeatureOverrides({});
+      applyFeatureOverrides(config);
+      applyFeatureFlags(config);
+      updateScopeChips();
+      logEvent("info", "Feature overrides reset.");
+      renderAdminPanel(config);
+    };
   }
 };
 
@@ -1066,12 +1247,14 @@ const setSelection = (feature, fallbackKey = "") => {
     state.selectedFeature = null;
     state.selectedFeatureKey = null;
     renderSelection(null);
+    logAction("Selection cleared.");
     return;
   }
   state.selectedFeature = feature;
   state.selectedFeatureKey = getFeatureKey(feature, fallbackKey);
   renderSelection(feature);
   renderLegend();
+  logAction("Selection updated.", { key: state.selectedFeatureKey || "" });
 };
 
 const clearSelection = () => {
@@ -1081,6 +1264,7 @@ const clearSelection = () => {
   syncSelectedLayer();
   renderTable();
   renderLegend();
+  logAction("Selection cleared.");
 };
 
 const normalizeModes = (raw) => {
@@ -1130,6 +1314,15 @@ const fillSelect = (select, options, formatter, includeNone = true) => {
     }
     select.appendChild(opt);
   });
+
+  // Multi-selects default to their first option being selected, which unintentionally applies filters on load.
+  // For our UX, "no selection" means "no filter", including when "(none)" is present as a selectable value.
+  if (select.multiple) {
+    Array.from(select.options).forEach((opt) => {
+      opt.selected = false;
+    });
+    select.selectedIndex = -1;
+  }
 };
 
 const fillSingleSelect = (select, options, formatter) => {
@@ -2200,19 +2393,37 @@ const buildMapFilter = () => {
   const rptKeys = mapCandidateKeys(state.tileFields.rptCode, ["rpt_code", "rptCode", "rpt"]);
   const timeBands = getSelectedTimeBands();
 
-  const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
-  if (modes.length && modeKeys.length) {
+  const modeSelection = getSelectedValues(elements.modeFilter);
+  const modes = modeSelection.filter((m) => m !== NONE_OPTION_VALUE);
+  const modesHasNone = modeSelection.includes(NONE_OPTION_VALUE);
+  if ((modes.length || modesHasNone) && modeKeys.length) {
     const value = coalesceGet(modeKeys, "");
-    expressions.push(["match", value, modes, true, false]);
+    const modeClauses = [];
+    if (modes.length) {
+      modeClauses.push(["match", value, modes, true, false]);
+    }
+    if (modesHasNone) {
+      modeClauses.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+    }
+    if (modeClauses.length) {
+      expressions.push(modeClauses.length === 1 ? modeClauses[0] : ["any", ...modeClauses]);
+    }
   }
 
-  const operators = getSelectedOperators()
-    .map((item) => item.value)
-    .filter((value) => value && value !== NONE_OPTION_VALUE);
-  if (operators.length) {
-    if (operatorKeys.length) {
-      const value = coalesceGet(operatorKeys, "");
-      expressions.push(["match", value, operators, true, false]);
+  const operatorSelection = getSelectedOperators().map((item) => item.value);
+  const operators = operatorSelection.filter((value) => value && value !== NONE_OPTION_VALUE);
+  const operatorsHasNone = operatorSelection.includes(NONE_OPTION_VALUE);
+  if ((operators.length || operatorsHasNone) && operatorKeys.length) {
+    const value = coalesceGet(operatorKeys, "");
+    const operatorClauses = [];
+    if (operators.length) {
+      operatorClauses.push(["match", value, operators, true, false]);
+    }
+    if (operatorsHasNone) {
+      operatorClauses.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+    }
+    if (operatorClauses.length) {
+      expressions.push(operatorClauses.length === 1 ? operatorClauses[0] : ["any", ...operatorClauses]);
     }
   }
 
@@ -3295,8 +3506,22 @@ const loadGeojsonPreview = async () => {
 };
 
 const onApplyFilters = async () => {
+  if (state.applyingFilters) {
+    state.pendingFilterApply = true;
+    return;
+  }
+  state.applyingFilters = true;
   toggleActionButtons(false);
   setStatus("Applying filters...");
+  logAction("Filters applied.", {
+    modes: getSelectedValues(elements.modeFilter),
+    operators: getSelectedOperators().map((item) => item.value),
+    timeBands: getSelectedTimeBands(),
+    la: getSelectedValue(elements.laFilter),
+    rpt: getSelectedValue(elements.rptFilter),
+    search: getServiceSearchValue(),
+    bbox: elements.bboxFilter?.checked
+  });
 
   try {
     const filtered = hasAttributeFilters();
@@ -3317,6 +3542,7 @@ const onApplyFilters = async () => {
 
     const validation = validateFilters();
     if (validation) {
+      logEvent("warn", "Filter validation failed.", { message: validation });
       setStatus(validation);
       return;
     }
@@ -3350,9 +3576,17 @@ const onApplyFilters = async () => {
     }
     updateEvidence();
   } catch (error) {
+    logEvent("error", "Filter query failed.", { error: error.message });
     setStatus(`Query failed: ${error.message}`);
   } finally {
+    state.applyingFilters = false;
     toggleActionButtons(true);
+    if (state.pendingFilterApply) {
+      state.pendingFilterApply = false;
+      window.setTimeout(() => {
+        onApplyFilters();
+      }, 0);
+    }
   }
 };
 
@@ -3383,6 +3617,7 @@ const loadInitialDatasetView = async () => {
 };
 
 const onClearFilters = () => {
+  logAction("Filters cleared.");
   Array.from(elements.modeFilter.options).forEach((opt) => {
     opt.selected = false;
   });
@@ -3426,6 +3661,7 @@ const onClearFilters = () => {
 };
 
 const onLoadSample = async () => {
+  logAction("GeoJSON preview requested.");
   try {
     const geojson = await loadGeojsonPreview();
     state.lastPreviewGeojson = geojson;
@@ -3446,6 +3682,7 @@ const onLoadSample = async () => {
     setStatsHint("GeoJSON preview loaded. Use DuckDB for full stats/exports when available.");
     setStatus("GeoJSON preview loaded.");
   } catch (error) {
+    logEvent("error", "GeoJSON preview failed.", { error: error.message });
     setStatus(`GeoJSON preview failed: ${error.message}`);
   } finally {
     toggleActionButtons(true);
@@ -3453,6 +3690,7 @@ const onLoadSample = async () => {
 };
 
 const onDownloadGeojson = async () => {
+  logAction("GeoJSON export requested.");
   if (!state.geojsonField && !state.spatialReady) {
     setStatus("GeoJSON export requires spatial extension or geojson column.");
     return;
@@ -3484,6 +3722,7 @@ const onDownloadGeojson = async () => {
     downloadFile(JSON.stringify(geojson), "routes-filtered.geojson", "application/json");
     setStatus("GeoJSON download ready.");
   } catch (error) {
+    logEvent("error", "GeoJSON export failed.", { error: error.message });
     setStatus(`GeoJSON export failed: ${error.message}`);
   } finally {
     toggleActionButtons(true);
@@ -3491,6 +3730,7 @@ const onDownloadGeojson = async () => {
 };
 
 const onDownloadCsv = async () => {
+  logAction("CSV export requested.");
   const validation = validateFilters();
   if (validation) {
     setStatus(validation);
@@ -3514,6 +3754,7 @@ const onDownloadCsv = async () => {
     downloadFile(csv, "routes-filtered.csv", "text/csv");
     setStatus("CSV download ready.");
   } catch (error) {
+    logEvent("error", "CSV export failed.", { error: error.message });
     setStatus(`CSV export failed: ${error.message}`);
   } finally {
     toggleActionButtons(true);
@@ -3605,6 +3846,13 @@ const init = async () => {
       throw new Error(`Config load failed (${configResponse.status})`);
     }
     state.config = await configResponse.json();
+    const { overrides } = applyFeatureOverrides(state.config);
+    if (Object.keys(overrides).length) {
+      logEvent("info", "Feature overrides applied.", overrides);
+    }
+    if (isAdminMode()) {
+      logEvent("info", "Admin mode enabled.");
+    }
     state.tableLimit = Math.max(100, Math.min(Number(state.config.tableLimit ?? 2000), 10000));
     state.tablePaging.pageSize = Math.max(100, Math.min(Number(state.config.tablePageSize ?? 500), 5000));
     state.tablePaging.browseMax = Math.max(state.tablePaging.pageSize, Math.min(Number(state.config.tableBrowseMax ?? 10000), 500000));
@@ -3612,6 +3860,7 @@ const init = async () => {
 
     applyUiConfig(state.config);
     initMap(state.config);
+    renderAdminPanel(state.config);
 
     if (elements.advancedToggle) {
       let initial = false;
@@ -3826,6 +4075,31 @@ const init = async () => {
     if (elements.bboxFilter) {
       elements.bboxFilter.addEventListener("change", () => onApplyFilters());
     }
+
+    // Keep map + table in sync as filters change (multi-selects and dropdowns).
+    // Apply remains as an explicit action, but the UX should feel "live".
+    const makeDebounced = (fn, delayMs) => {
+      let timer = null;
+      return () => {
+        if (timer) window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          timer = null;
+          fn();
+        }, delayMs);
+      };
+    };
+    const scheduleApplyFilters = makeDebounced(() => {
+      onApplyFilters();
+    }, 150);
+    const bindFilterChange = (el) => {
+      if (!el) return;
+      el.addEventListener("change", scheduleApplyFilters);
+    };
+    bindFilterChange(elements.modeFilter);
+    bindFilterChange(elements.operatorFilter);
+    bindFilterChange(elements.timeBandFilter);
+    bindFilterChange(elements.laFilter);
+    bindFilterChange(elements.rptFilter);
 
     // Place search (feature-flagged geocoder).
     if (getFeatureFlag(state.config, "geocoder", false) && elements.placeSearch && elements.placeSearchResults) {
