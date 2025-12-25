@@ -220,7 +220,7 @@ export const buildMapFilter = (filters, tileFields = {}) => {
     const laExprs = [];
 
     if (tileFields.laCode) {
-      laExprs.push(["==", ["get", tileFields.laCode], laValue]);
+      laExprs.push(["==", ["to-string", ["get", tileFields.laCode]], String(laValue)]);
     }
 
     if (tileFields.laCodes) {
@@ -238,7 +238,7 @@ export const buildMapFilter = (filters, tileFields = {}) => {
     const rptExprs = [];
 
     if (tileFields.rptCode) {
-      rptExprs.push(["==", ["get", tileFields.rptCode], rptValue]);
+      rptExprs.push(["==", ["to-string", ["get", tileFields.rptCode]], String(rptValue)]);
     }
 
     if (tileFields.rptCodes) {
