@@ -2680,6 +2680,7 @@ const init = async () => {
     try {
       await initDuckDb(state.config, duckdb, setStatus);
       populateFilters();
+      await populateBoundaryFilters();
 
       await loadInitialDatasetView();
     } catch (duckdbError) {

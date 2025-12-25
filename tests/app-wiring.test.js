@@ -30,6 +30,10 @@ describe("app wiring", () => {
     expectNoMatch(/hasAttributeFilters\(\s*\)/, "hasAttributeFilters called without filters");
   });
 
+  it("populates LA/RPT filters after DuckDB init", () => {
+    expect(appSource).toMatch(/populateBoundaryFilters\(\)/);
+  });
+
   it("does not use legacy table wiring", () => {
     expectNoMatch(/renderTable\(elements,\s*getSelectedServiceId,\s*setStatus,\s*updateEvidence\s*\)/, "renderTable missing filters arg");
     expectNoMatch(/ensureTablePageFor\(\s*\d+\s*\)/, "ensureTablePageFor called without dependencies");
