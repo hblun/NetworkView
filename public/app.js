@@ -634,51 +634,10 @@ const setAdvancedOpen = (open) => {
 };
 
 // formatCount removed - now imported from ./js/utils/dom.js
-
-const formatBytes = (bytes) => {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  const units = ["KB", "MB", "GB"];
-  let idx = -1;
-  let value = bytes;
-  while (value >= 1024 && idx < units.length - 1) {
-    value /= 1024;
-    idx += 1;
-  }
-  return `${value.toFixed(1)} ${units[idx]}`;
-};
-
-const getResultColumns = (result) => {
-  const fields = result?.schema?.fields;
-  if (Array.isArray(fields)) {
-    return fields.map((field) => field.name);
-  }
-  return [];
-};
-
-const EXCLUDED_CSV_COLUMNS = new Set(["geometry", "geom", "geojson"]);
-
-const getCsvColumns = () =>
-  (state.columns || []).filter((column) => !EXCLUDED_CSV_COLUMNS.has(column));
-
 // toNumber removed - now imported from ./js/utils/dom.js
 
-const estimateExportBytes = (count, format) => {
-  const perRow = format === "geojson" ? 900 : 220;
-  return toNumber(count) * perRow;
-};
-
-const confirmLargeExport = async (count, format) => {
-  const estimate = estimateExportBytes(count, format);
-  const threshold = 5 * 1024 * 1024;
-  if (estimate <= threshold) {
-    return true;
-  }
-  return window.confirm(
-    `This export is estimated at ~${formatBytes(estimate)} for ${formatCount(count)} rows. Continue?`
-  );
-};
+// Export utility functions removed - now imported from ./js/exports/handlers.js:
+// - formatBytes, getResultColumns, getCsvColumns, estimateExportBytes, confirmLargeExport
 
 const formatPercent = (value) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -1586,83 +1545,7 @@ const setBaseLayerFocus = (filtered) => {
   map.setPaintProperty(layerId, "line-width", width);
 };
 
-const detectTileFieldsFromRendered = () => {
-  const map = state.map;
-  if (!map || !map.getLayer(state.baseLayerId)) {
-    return;
-  }
-  const candidates = [];
-  const canvas = map.getCanvas();
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  const points = [
-    [w * 0.5, h * 0.5],
-    [w * 0.25, h * 0.5],
-    [w * 0.75, h * 0.5],
-    [w * 0.5, h * 0.25],
-    [w * 0.5, h * 0.75]
-  ];
-  points.forEach(([x, y]) => {
-    const features = map.queryRenderedFeatures(
-      [
-        [x - 6, y - 6],
-        [x + 6, y + 6]
-      ],
-      { layers: [state.baseLayerId] }
-    );
-    if (features && features.length) {
-      candidates.push(...features.slice(0, 3));
-    }
-  });
-  if (!candidates.length) {
-    return;
-  }
-
-  const keys = new Map();
-  candidates.forEach((feature) => {
-    const props = feature?.properties || {};
-    Object.keys(props).forEach((key) => {
-      keys.set(String(key).toLowerCase(), key);
-    });
-  });
-
-  const resolve = (names) => {
-    for (const name of names) {
-      const hit = keys.get(String(name).toLowerCase());
-      if (hit) return hit;
-    }
-    return "";
-  };
-
-  state.tileFields.serviceId = state.tileFields.serviceId || resolve(["serviceId", "service_id", "service"]);
-  state.tileFields.serviceName = state.tileFields.serviceName || resolve(["serviceName", "service_name", "name"]);
-  state.tileFields.mode = state.tileFields.mode || resolve(["mode", "serviceMode"]);
-  state.tileFields.operatorCode = state.tileFields.operatorCode || resolve(["operatorCode", "operator_code"]);
-  state.tileFields.operatorName = state.tileFields.operatorName || resolve(["operatorName", "operator_name", "operator"]);
-  state.tileFields.laCode = state.tileFields.laCode || resolve(["la_code", "laCode", "la"]);
-  state.tileFields.laCodes = state.tileFields.laCodes || resolve(["la_codes", "laCodes", "la_list"]);
-  state.tileFields.rptCode = state.tileFields.rptCode || resolve(["rpt_code", "rptCode", "rpt"]);
-  state.tileFields.rptCodes = state.tileFields.rptCodes || resolve(["rpt_codes", "rptCodes", "rpt_list"]);
-
-  if (!state.tileTimeBandFields) {
-    state.tileTimeBandFields = {};
-  }
-  TIME_BAND_OPTIONS.forEach((option) => {
-    if (!state.tileTimeBandFields[option.key]) {
-      const field = resolve(option.candidates);
-      if (field) {
-        state.tileTimeBandFields[option.key] = field;
-      }
-    }
-  });
-};
-
-// DuckDB initialization functions removed - now imported from ./js/duckdb/client.js:
-// - detectSchemaFields (57 lines)
-// - initDuckDb (193 lines)
-
-
-// getSelectedValues and getSelectedValue removed - now imported from ./js/utils/dom.js
+// detectTileFieldsFromRendered removed - now imported from ./js/map/utils.js (80 lines)
 
 // getSelectedOperators and getSelectedTimeBands removed - now imported from ./js/filters/builder.js
 
