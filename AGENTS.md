@@ -18,6 +18,7 @@ Document the run-time rules and expectations codified for agents working in the 
 - When multiple skills are triggered (e.g., by name or by a task that matches a description), execute them in the order they are mentioned and note the sequence.
 - If a skill named in the request cannot be found, call it out briefly and default to standard repo tooling.
 - Update `plan.md` with any discoveries, blockers, or doc work product; the plan doubles as the decision log for prioritization conversations.
+- Track open work in Beads: issues live in `.beads/issues.jsonl` and are managed with the `bd` CLI (`bd list`, `bd create`, `bd update`, `bd close`). Use Beads for new tasks and keep `plan.md` as the high-level roadmap.
 
 ## Runtime reminders
 - The viewer pulls `maplibre-gl`, `pmtiles`, `deck.gl`, and `@duckdb/duckdb-wasm` directly from CDNs via ES module imports. Bundling or local caching is necessary for offline or restricted environments.
