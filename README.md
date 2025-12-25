@@ -16,7 +16,7 @@ Browser-based transport route mapping and analysis tool using MapLibre GL, DuckD
 
 **For local development**:
 - Python 3.11+ (for dev server)
-- Node.js 20+ (for tests only)
+- Node.js 20+ (only if running tests/lint)
 
 **For building data artifacts**:
 - Python 3.11+ with `duckdb` installed: `pip install duckdb`
@@ -65,7 +65,7 @@ Note: R2 endpoints must have CORS and Range requests enabled.
 
 ## Development
 
-### Install Dependencies
+### Install Dependencies (for tests/lint only)
 
 ```bash
 npm install
@@ -95,9 +95,15 @@ NetworkView/
 │   ├── app.js        # Main application code
 │   ├── boot.js       # Bootstrap and error handling
 │   ├── styles.css    # Styles
-│   ├── js/           # Modularized JavaScript (new)
+│   ├── js/           # Modularized JavaScript
 │   │   ├── utils/    # Utility functions
-│   │   └── config/   # Configuration constants
+│   │   ├── config/   # Configuration constants
+│   │   ├── filters/  # Filter logic
+│   │   ├── map/      # Map helpers
+│   │   ├── table/    # Table rendering
+│   │   ├── duckdb/   # DuckDB client
+│   │   └── spatial/  # Spatial query scaffolding
+│   ├── design/       # React mockups (served at /design/)
 │   ├── *.pmtiles     # Vector tile data
 │   ├── *.parquet     # Attribute data for DuckDB
 │   └── config.json   # Runtime configuration
@@ -105,7 +111,7 @@ NetworkView/
 │   ├── dev_server.py           # Local dev server with Range support
 │   ├── build_frontend_data.py  # Data artifact generator
 │   └── build_frontend_data.sh  # Build script wrapper
-├── data/             # Source data (not in git)
+├── data/             # Source data (ignored in git)
 ├── tests/            # Unit tests
 └── .github/          # CI/CD workflows
 ```
@@ -303,8 +309,4 @@ NetworkView uses a static, client-side architecture:
 
 ## License
 
-[Add license information]
-
-## Support
-
-[Add support contact information]
+UNLICENSED (internal use only).

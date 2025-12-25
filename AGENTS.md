@@ -200,7 +200,7 @@ const whereClause = buildWhere(filters);
 ## Runtime reminders
 - The viewer pulls `maplibre-gl`, `pmtiles`, `deck.gl`, and `@duckdb/duckdb-wasm` directly from CDNs via ES module imports. Bundling or local caching is necessary for offline or restricted environments.
 - `config.json` and `config.sample.json` control the R2 data endpoints, metadata, and basemap. Any data refresh must also update `public/routes.pmtiles`, `routes.parquet`, and `metadata.json` in tandem.
-- For local exploration, follow `README.md` steps: copy `config.sample.json`, download DuckDB assets from `tools/fetch_duckdb_assets.sh`, and serve `public/` with `python3 -m tools.dev_server`.
+- For local exploration, follow `README.md`: copy `public/config.sample.json` → `public/config.json`, then run `python3 -m tools.dev_server --public-dir public --data-dir data --port 5137`.
 
 ## Review deliverables
 - After reviewing the codebase, produce a short write-up of findings, create/refresh supporting documentation (e.g., `BASELINE.md`), and note any outstanding risks or needs directly inside `plan.md` so the team can revisit them later.

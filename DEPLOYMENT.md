@@ -43,7 +43,7 @@ This generates:
 - `public/boundaries_rpt.pmtiles` (1-2MB)
 - `public/operators.parquet` (5KB)
 - `data/routes_enriched.geojson` (updated with spatial joins)
-- `data/metadata.json` (dataset version info)
+- `public/metadata.json` (dataset version info)
 
 ### 3. Verify Build Output
 

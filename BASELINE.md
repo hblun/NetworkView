@@ -15,17 +15,16 @@
 - The viewer also references `config.ui` in `public/config.sample.json` for display text (kicker, heading, badge) that can be overridden per deployment.
 
 ## Local development
-1. Copy the sample config: `cp frontend/public/config.sample.json frontend/public/config.json`.
-2. Fetch DuckDB-WASM assets via `bash tools/fetch_duckdb_assets.sh`. The frontend expects a `/duckdb` folder with `*.worker.js`.
-3. Run `python3 -m tools.dev_server --directory frontend/public --port 5137` and open `http://localhost:5137`.
-4. Click **Load sample preview** to check the UI without the full dataset.
-5. To exercise the full dataset, download and replace `routes.pmtiles`, `routes.parquet`, and `metadata.json` (or point `config.json` to your Cloudflare R2 bucket).
+1. Copy the sample config: `cp public/config.sample.json public/config.json`.
+2. Run `python3 -m tools.dev_server --public-dir public --data-dir data --port 5137` and open `http://localhost:5137`.
+3. Click **Load sample preview** to check the UI without the full dataset.
+4. To exercise the full dataset, download and replace `routes.pmtiles`, `routes.parquet`, and `metadata.json` (or point `config.json` to your Cloudflare R2 bucket).
 
 ## Known gaps & manual checks
-- No bundler / build pipeline / tests exist; the only verification is manual interaction via the sample UI.
+- No bundler / build pipeline exists; tests and linting exist but do not cover full map + DuckDB integration.
 - There is no automated way to refresh `routes.parquet` or ensure `metadata.json` aligns with the tiles, so updates should follow the README’s `tools/build_frontend_data.sh` script paired with manual metadata inspection.
 - Time-band filtering relies on available flags in the Parquet dataset; the UI currently enables the bbox filter (with spatial extension) and falls back to a geojson/bbox column combo if spatial support is missing.
-- LA/RPT assignments are derived from polygon intersection with a nearest-LA fallback for routes that do not intersect land polygons (notably ferry services). Argyll & Bute is treated as fully HITRANS until a sub-LA boundary for Helensburgh + Lomond is supplied.
+- LA/RPT assignments are derived from polygon intersection with a nearest-LA fallback for routes that do not intersect land polygons (notably ferry services). Multi-membership `la_codes/rpt_codes` fields are now used for filters so routes appear in every area they intersect. Argyll & Bute is treated as fully HITRANS until a sub-LA boundary for Helensburgh + Lomond is supplied.
 
 ## Follow-up priorities
 - If the dataset changes, confirm that `metadata.generatedAt`/`lastUpdated` update, the R2 bucket has `"metadata.json"`, and `config.json` still points at that bucket.
