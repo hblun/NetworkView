@@ -1338,6 +1338,15 @@ const updateBoundaryHighlight = () => {
   update("rpt", getSelectedValue(elements.rptFilter));
 };
 
+const getTableLoadedRange = () => {
+  if (state.conn && state.tablePaging.enabled) {
+    const start = state.tablePaging.offset;
+    const end = start + (state.tablePaging.rows?.length || 0);
+    return { start, end };
+  }
+  return { start: 0, end: (state.tableRows || []).length };
+};
+
 const getTableRowAtIndex = (index) => {
   if (state.conn && state.tablePaging.enabled) {
     const range = getTableLoadedRange();
@@ -1347,6 +1356,31 @@ const getTableRowAtIndex = (index) => {
     return state.tablePaging.rows[index - range.start] || null;
   }
   return state.tableRows[index] || null;
+};
+
+const normalizePreviewProps = (props) => {
+  const source = props || {};
+  const normalized = { ...source };
+  const mappings = [
+    ["service_id", "serviceId"],
+    ["serviceid", "serviceId"],
+    ["service_name", "serviceName"],
+    ["servicename", "serviceName"],
+    ["operator_code", "operatorCode"],
+    ["operatorcode", "operatorCode"],
+    ["operator_name", "operatorName"],
+    ["operatorname", "operatorName"]
+  ];
+  mappings.forEach(([from, to]) => {
+    if (normalized[to] !== undefined && normalized[to] !== null && normalized[to] !== "") {
+      return;
+    }
+    const value = getProp(source, from);
+    if (value !== undefined && value !== null && value !== "") {
+      normalized[to] = value;
+    }
+  });
+  return normalized;
 };
 
 const loadGeojsonPreview = async () => {
