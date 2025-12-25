@@ -251,12 +251,20 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
 
     const maxBufferMb = config.parquetBufferMaxMb ?? 200;
     let canBuffer = preferBuffer || isTooSmall || isLocalHost;
+    let rangeUnsupported = false;
+    let contentLength = 0;
 
     if (!canBuffer) {
       try {
         const head = await fetch(parquetUrl, { method: "HEAD" });
-        const length = Number(head.headers.get("content-length") || 0);
-        canBuffer = !length || length <= maxBufferMb * 1024 * 1024;
+        contentLength = Number(head.headers.get("content-length") || 0);
+        const acceptRanges = (head.headers.get("accept-ranges") || "").toLowerCase();
+        rangeUnsupported = acceptRanges !== "bytes";
+        if (rangeUnsupported) {
+          setStatus("Parquet server lacks Range support. Downloading full file (consider tools/dev_server).");
+        }
+        const maxBytes = maxBufferMb * 1024 * 1024;
+        canBuffer = !contentLength || contentLength <= maxBytes || rangeUnsupported;
       } catch (headError) {
         canBuffer = false;
       }
@@ -286,6 +294,11 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
       await state.db.registerFileBuffer("routes.parquet", buffer);
       await describeParquet();
     } else {
+      if (rangeUnsupported) {
+        throw new Error(
+          "Parquet server does not support Range requests and file is too large to buffer. Use tools/dev_server or set parquetPreferBuffer."
+        );
+      }
       throw error;
     }
   }
