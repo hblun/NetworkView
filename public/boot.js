@@ -22,7 +22,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 setStatus("Booting up...");
 
-const APP_VERSION = "2025-12-25-5";
+const APP_VERSION = "2025-12-25-7";
 
 const loadApp = async () => {
   try {

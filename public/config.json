@@ -3,6 +3,8 @@
   "pmtilesFile": "routes.pmtiles",
   "parquetFile": "routes.parquet",
   "parquetPreferBuffer": true,
+  "tileCacheVersion": "2025-12-25-6",
+  "routesMinZoom": 5,
   "metadataFile": "metadata.json",
   "boundariesLaPmtiles": "boundaries_la.pmtiles",
   "boundariesRptPmtiles": "boundaries_rpt.pmtiles",

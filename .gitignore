@@ -1,3 +1,59 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Build outputs
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 public/.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Large data files (generated artifacts - keep out of git)
+public/routes.pmtiles
+public/routes.parquet
+public/boundaries_*.pmtiles
+public/operators.parquet
+public/metadata.json
 data/
+
+# DuckDB files
+*.duckdb
+*.duckdb.wal
+
+# Config overrides (keep sample configs in git)
+public/config.json
+!public/config.sample.json
+!public/config.r2.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+pip-log.txt
+
+# OS
+Thumbs.db

@@ -1,87 +1,310 @@
-# Frontend (MapLibre + deck.gl)
+# NetworkView
 
-This folder contains a static frontend that renders routes with MapLibre + deck.gl
-and supports client-side filtering + exports using DuckDB-WASM.
+Browser-based transport route mapping and analysis tool using MapLibre GL, DuckDB-WASM, and PMTiles.
 
-## Quick start (sample data)
-1) Copy the sample config:
+## Features
 
+- **Interactive map viewer** with route lines and administrative boundaries
+- **Client-side filtering** by mode, operator, time bands, and geographic area
+- **Data analysis** powered by DuckDB-WASM (runs entirely in browser)
+- **Export capabilities** for CSV and GeoJSON
+- **Static deployment** - no backend required
+
+## Quick Start
+
+### Prerequisites
+
+**For local development**:
+- Python 3.11+ (for dev server)
+- Node.js 20+ (for tests only)
+
+**For building data artifacts**:
+- Python 3.11+ with `duckdb` installed: `pip install duckdb`
+- `tippecanoe` for PMTiles generation (optional but recommended)
+  - macOS: `brew install tippecanoe`
+  - Ubuntu: Build from source ([mapbox/tippecanoe](https://github.com/felt/tippecanoe))
+
+### Running Locally
+
+1. **Clone the repository**
+
+```bash
+git clone <repository-url>
+cd NetworkView
 ```
+
+2. **Copy sample configuration**
+
+```bash
 cp public/config.sample.json public/config.json
 ```
 
-2) (Optional) Download DuckDB-WASM assets locally (avoids worker/CORS issues and reduces CDN dependency):
+3. **Start the development server**
 
-```
-bash tools/fetch_duckdb_assets.sh
-```
-
-3) Start a local dev server (Range-enabled, also mounts `data/` at `/data/`):
-
-```
+```bash
 python3 -m tools.dev_server --public-dir public --data-dir data --port 5137
 ```
 
-4) Open:
+4. **Open in browser**
 
 ```
 http://localhost:5137
 ```
 
-Use **Load GeoJSON preview** to stream a small subset from `config.geojsonFile` (useful when DuckDB isn’t available).
-If you want to use the R2-hosted config instead, open:
+The app will load with sample data. Click "Load GeoJSON preview" to see a preview of routes.
+
+### Using Production Data
+
+To use the full dataset hosted on R2:
 
 ```
 http://localhost:5137/?config=config.r2.json
 ```
 
-Note: R2 endpoints must have CORS + Range enabled or the browser will block requests.
+Note: R2 endpoints must have CORS and Range requests enabled.
 
-## Feature flags
-UI elements that aren’t ready yet are hidden behind `public/config.json` feature flags:
-- `features.share`, `features.snapshot`
-- `features.insightsTab`, `features.reportingTab`
-- `features.layerToggles`
-- `features.exportGeojson`, `features.exportCsv`
-- `features.geojsonPreview`
+## Development
 
-## Build full data artifacts
-Use the helper script to generate metadata + parquet + pmtiles:
+### Install Dependencies
 
-```
-./tools/build_frontend_data.sh data/scotland-bus-routes.geojson public
+```bash
+npm install
 ```
 
-Requirements:
-- `python3` with `duckdb` installed (`python3 -m pip install duckdb`)
-- `tippecanoe` for PMTiles (optional, but recommended)
-- DuckDB-WASM assets in `frontend/public/duckdb` (use `tools/fetch_duckdb_assets.sh`)
+### Run Tests
 
-The build script also embeds:
-- `geojson` column (for previews/exports without DuckDB spatial in the browser)
-- `bbox_minx/bbox_miny/bbox_maxx/bbox_maxy` columns (for bbox filtering without spatial)
+```bash
+npm test              # Run tests once
+npm run test:ui       # Run tests with UI
+npm run test:coverage # Run tests with coverage report
+```
 
-## Deploy to Cloudflare Pages + R2
-1) Upload artifacts to an R2 bucket:
-   - `routes.pmtiles`
-   - `routes.parquet`
-   - `metadata.json`
-2) Enable CORS + Range requests on the bucket.
-3) Update `frontend/public/config.json`:
+### Run Linter
+
+```bash
+npm run lint          # Check for issues
+npm run lint:fix      # Auto-fix issues
+```
+
+### Project Structure
+
+```
+NetworkView/
+├── public/           # Static frontend assets
+│   ├── index.html    # Main HTML file
+│   ├── app.js        # Main application code
+│   ├── boot.js       # Bootstrap and error handling
+│   ├── styles.css    # Styles
+│   ├── js/           # Modularized JavaScript (new)
+│   │   ├── utils/    # Utility functions
+│   │   └── config/   # Configuration constants
+│   ├── *.pmtiles     # Vector tile data
+│   ├── *.parquet     # Attribute data for DuckDB
+│   └── config.json   # Runtime configuration
+├── tools/            # Build and dev server scripts
+│   ├── dev_server.py           # Local dev server with Range support
+│   ├── build_frontend_data.py  # Data artifact generator
+│   └── build_frontend_data.sh  # Build script wrapper
+├── data/             # Source data (not in git)
+├── tests/            # Unit tests
+└── .github/          # CI/CD workflows
+```
+
+## Building Data Artifacts
+
+### 1. Prepare Source Data
+
+Place your source files in the `data/` directory:
+- `routes_enriched.geojson` - Route line geometries with attributes
+- `boundaries_la_clean.geojson` - Local Authority boundaries
+- `boundaries_rpt_clean.geojson` - Regional Transport Partnership boundaries
+
+### 2. Run Build Script
+
+```bash
+./tools/build_frontend_data.sh \
+  data/routes_enriched.geojson \
+  data/boundaries_la_clean.geojson \
+  data/boundaries_rpt_clean.geojson \
+  public
+```
+
+This generates:
+- `public/routes.pmtiles` - Route vector tiles
+- `public/routes.parquet` - Route attributes for DuckDB queries
+- `public/boundaries_la.pmtiles` - LA boundary tiles
+- `public/boundaries_rpt.pmtiles` - RPT boundary tiles
+- `public/operators.parquet` - Operator lookup table
+- `public/metadata.json` - Dataset metadata and version info
+
+### 3. Verify Output
+
+```bash
+ls -lh public/*.{pmtiles,parquet}
+```
+
+Expected file sizes:
+- `routes.pmtiles`: 8-10MB
+- `routes.parquet`: 40-60MB (depending on dataset)
+- `boundaries_*.pmtiles`: 1-3MB each
+
+## Configuration
+
+The app is configured via `public/config.json`:
 
 ```json
 {
-  "dataBaseUrl": "https://<your-r2-public-url>",
-  "pmtilesFile": "routes.pmtiles",
-  "parquetFile": "routes.parquet",
-  "metadataFile": "metadata.json",
-  "vectorLayer": "routes",
-  "duckdbBaseUrl": "duckdb"
+  "dataBaseUrl": "",              // Base URL for data files (or "" for relative)
+  "pmtilesFile": "routes.pmtiles", // Routes vector tiles
+  "parquetFile": "routes.parquet", // Routes attribute table
+  "metadataFile": "metadata.json", // Dataset metadata
+  "basemapStyle": "https://...",  // MapLibre style URL
+  "defaultView": {
+    "center": [-3.5, 56.2],       // Map center [lon, lat]
+    "zoom": 6.2                   // Initial zoom level
+  },
+  "features": {                   // Feature flags
+    "exportCsv": true,
+    "exportGeojson": false,
+    "geojsonPreview": true,
+    ...
+  }
 }
 ```
 
-4) Deploy `frontend/public` to Cloudflare Pages (no build step).
+### Feature Flags
 
-## Notes
-- If `pmtilesFile` is empty, the map renders the basemap only.
-- GeoJSON export and bbox filtering require the DuckDB spatial extension.
+Control UI features via `features` in config:
+- `share` - Share state button
+- `snapshot` - Map snapshot export
+- `exportGeojson` - GeoJSON export button
+- `exportCsv` - CSV export button
+- `geojsonPreview` - Load sample GeoJSON button
+- `geocoder` - Place search
+- `layerToggles` - Layer visibility controls
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions to Cloudflare Pages + R2.
+
+Quick summary:
+
+1. Build data artifacts (see above)
+2. Upload PMTiles and Parquet files to R2 bucket
+3. Configure CORS on R2 bucket (allow GET, HEAD, Range header)
+4. Update `public/config.json` with R2 bucket URL
+5. Deploy `public/` directory to Cloudflare Pages
+
+## Testing
+
+### Manual Testing Checklist
+
+Before deploying, verify:
+
+- [ ] Map loads and displays basemap
+- [ ] Routes layer renders
+- [ ] Filters work (Mode, Operator, LA, RPT)
+- [ ] Service search filters routes
+- [ ] Clicking a route shows selection panel
+- [ ] Data table updates with filtered results
+- [ ] CSV export downloads
+- [ ] No console errors
+
+### Automated Tests
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+Current test coverage includes:
+- SQL utilities (escaping, quoting, query building)
+- Color generation and conversion
+- Configuration constants
+
+**TODO**: Add integration tests for DuckDB queries and map interactions.
+
+## Architecture
+
+NetworkView uses a static, client-side architecture:
+
+- **Frontend**: Vanilla JavaScript (ES modules), no build step required
+- **Map rendering**: MapLibre GL with PMTiles protocol
+- **Data queries**: DuckDB-WASM running in browser
+- **Deployment**: Static files on CDN (Cloudflare Pages)
+- **Data storage**: Object storage (R2) with CORS + Range support
+
+### Technology Stack
+
+- [MapLibre GL](https://maplibre.org/) - Map rendering
+- [PMTiles](https://github.com/protomaps/PMTiles) - Vector tile format
+- [DuckDB-WASM](https://duckdb.org/docs/api/wasm) - In-browser analytics
+- [Deck.gl](https://deck.gl/) - Preview overlays
+- Python + DuckDB - Data pipeline
+
+## Contributing
+
+### Code Quality Standards
+
+- All JavaScript must pass ESLint
+- All new utility functions must have unit tests
+- Manual testing checklist must pass before merging
+- Keep functions under 50 lines where possible
+- Extract reusable logic into modules
+
+### Pull Request Process
+
+1. Create feature branch from `main`
+2. Write tests for new functionality
+3. Ensure all tests pass: `npm test`
+4. Run linter: `npm run lint:fix`
+5. Update documentation if needed
+6. Submit PR with clear description
+
+## Troubleshooting
+
+### Map doesn't load
+
+**Check**:
+- Browser console for errors
+- `config.json` has correct URLs
+- PMTiles files are accessible
+- CORS is configured on data host
+
+### DuckDB fails to initialize
+
+**Check**:
+- Parquet file is accessible
+- File size is reasonable (< 100MB works best)
+- Try setting `parquetPreferBuffer: true` in config
+- Check browser console for WASM errors
+
+### Filters don't work
+
+**Check**:
+- `metadata.json` contains expected modes/operators
+- Parquet file has expected column names
+- Browser console for SQL errors
+
+### Performance issues
+
+**Check**:
+- Parquet file size (consider reducing data volume)
+- Number of features in PMTiles (simplify geometry if needed)
+- Browser memory usage (limit table rows with `tableLimit` config)
+
+## Documentation
+
+- [BASELINE.md](BASELINE.md) - Current system state and design decisions
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment procedures and troubleshooting
+- [plan.md](plan.md) - Product roadmap and feature planning
+- [AGENTS.md](AGENTS.md) - Development workflow for AI agents
+
+## License
+
+[Add license information]
+
+## Support
+
+[Add support contact information]

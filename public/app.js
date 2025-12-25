@@ -88,11 +88,16 @@ const state = {
   tileTimeBandFields: {},
   laField: "",
   laNameField: "",
+  laCodesField: "",
+  laNamesField: "",
   rptField: "",
   rptNameField: "",
+  rptCodesField: "",
+  rptNamesField: "",
   lastQuery: null,
   applyingFilters: false,
   pendingFilterApply: false,
+  lastMapFilterWarningKey: "",
   tileFields: {
     serviceId: "",
     serviceName: "",
@@ -100,7 +105,9 @@ const state = {
     operatorCode: "",
     operatorName: "",
     laCode: "",
-    rptCode: ""
+    laCodes: "",
+    rptCode: "",
+    rptCodes: ""
   },
   tableRows: [],
   tableLimit: 250,
@@ -167,6 +174,20 @@ const toAbsoluteUrl = (value) => {
     return new URL(value, window.location.href).toString();
   } catch (error) {
     return value;
+  }
+};
+
+const addCacheBuster = (url, version) => {
+  if (!url || !version || typeof window === "undefined") {
+    return url;
+  }
+  try {
+    const resolved = new URL(url, window.location.href);
+    resolved.searchParams.set("v", version);
+    return resolved.toString();
+  } catch (error) {
+    const joiner = url.includes("?") ? "&" : "?";
+    return `${url}${joiner}v=${encodeURIComponent(version)}`;
   }
 };
 
@@ -669,6 +690,18 @@ const fitMapToBbox = (bbox, reason) => {
       ],
       { padding: 40, duration: 450 }
     );
+    const minZoom = Number(state.config?.routesMinZoom ?? 5);
+    if (Number.isFinite(minZoom)) {
+      map.once("moveend", () => {
+        try {
+          if (map.getZoom() < minZoom) {
+            map.setZoom(minZoom);
+          }
+        } catch (zoomError) {
+          // Ignore zoom clamp failures.
+        }
+      });
+    }
     if (reason) {
       setStatus(reason);
     }
@@ -1601,7 +1634,10 @@ const initMap = (config) => {
       const sourceId = `boundaries-${key}`;
       const layerId = `boundaries-${key}-outline`;
       const sourceLayer = config[layerKey] || key;
-      const pmtilesUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, file));
+      const pmtilesUrl = addCacheBuster(
+        toAbsoluteUrl(joinUrl(config.dataBaseUrl, file)),
+        config.tileCacheVersion
+      );
       map.addSource(sourceId, {
         type: "vector",
         url: `pmtiles://${pmtilesUrl}`
@@ -1629,7 +1665,10 @@ const initMap = (config) => {
     addBoundaryLayer("rpt", "boundariesRptPmtiles", "boundariesRptLayer", "#15803d", "boundariesRptCodeField");
 
     if (config.pmtilesFile) {
-      const pmtilesUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.pmtilesFile));
+      const pmtilesUrl = addCacheBuster(
+        toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.pmtilesFile)),
+        config.tileCacheVersion
+      );
       setStatus("Loading route tiles...");
       map.addSource("routes", {
         type: "vector",
@@ -1928,7 +1967,9 @@ const detectTileFieldsFromRendered = () => {
   state.tileFields.operatorCode = state.tileFields.operatorCode || resolve(["operatorCode", "operator_code"]);
   state.tileFields.operatorName = state.tileFields.operatorName || resolve(["operatorName", "operator_name", "operator"]);
   state.tileFields.laCode = state.tileFields.laCode || resolve(["la_code", "laCode", "la"]);
+  state.tileFields.laCodes = state.tileFields.laCodes || resolve(["la_codes", "laCodes", "la_list"]);
   state.tileFields.rptCode = state.tileFields.rptCode || resolve(["rpt_code", "rptCode", "rpt"]);
+  state.tileFields.rptCodes = state.tileFields.rptCodes || resolve(["rpt_codes", "rptCodes", "rpt_list"]);
 
   if (!state.tileTimeBandFields) {
     state.tileTimeBandFields = {};
@@ -1959,8 +2000,12 @@ const detectSchemaFields = (columns) => {
   const operatorCandidates = ["operatorCode", "operatorName", "operator"];
   const laCodeCandidates = ["la_code", "laCode", "la"];
   const laNameCandidates = ["la_name", "laName", "local_authority"];
+  const laCodesCandidates = ["la_codes", "laCodes", "la_list"];
+  const laNamesCandidates = ["la_names", "laNames", "local_authorities"];
   const rptCodeCandidates = ["rpt_code", "rptCode", "rpt"];
   const rptNameCandidates = ["rpt_name", "rptName"];
+  const rptCodesCandidates = ["rpt_codes", "rptCodes", "rpt_list"];
+  const rptNamesCandidates = ["rpt_names", "rptNames"];
   const bboxCandidates = {
     minx: ["bbox_minx", "minx", "xmin", "min_lon", "min_lng"],
     miny: ["bbox_miny", "miny", "ymin", "min_lat"],
@@ -1972,8 +2017,12 @@ const detectSchemaFields = (columns) => {
   state.operatorFields = operatorCandidates.map((name) => findColumn([name])).filter(Boolean);
   state.laField = findColumn(laCodeCandidates);
   state.laNameField = findColumn(laNameCandidates);
+  state.laCodesField = findColumn(laCodesCandidates);
+  state.laNamesField = findColumn(laNamesCandidates);
   state.rptField = findColumn(rptCodeCandidates);
   state.rptNameField = findColumn(rptNameCandidates);
+  state.rptCodesField = findColumn(rptCodesCandidates);
+  state.rptNamesField = findColumn(rptNamesCandidates);
   state.timeBandFields = {};
   TIME_BAND_OPTIONS.forEach((option) => {
     const field = findColumn(option.candidates);
@@ -2305,17 +2354,31 @@ const buildWhere = () => {
     }
   }
 
-  if (laValue && state.laField) {
+  if (laValue && (state.laCodesField || state.laField)) {
     if (laValue === NONE_OPTION_VALUE) {
-      clauses.push(`(${quoteIdentifier(state.laField)} IS NULL OR ${quoteIdentifier(state.laField)} = '')`);
+      if (state.laCodesField) {
+        clauses.push(`(${quoteIdentifier(state.laCodesField)} IS NULL OR ${quoteIdentifier(state.laCodesField)} = '')`);
+      } else {
+        clauses.push(`(${quoteIdentifier(state.laField)} IS NULL OR ${quoteIdentifier(state.laField)} = '')`);
+      }
+    } else if (state.laCodesField) {
+      const needle = `|${escapeSql(laValue)}|`;
+      clauses.push(`COALESCE(${quoteIdentifier(state.laCodesField)}, '') LIKE '%${needle}%'`);
     } else {
       clauses.push(`${quoteIdentifier(state.laField)} = '${escapeSql(laValue)}'`);
     }
   }
 
-  if (rptValue && state.rptField) {
+  if (rptValue && (state.rptCodesField || state.rptField)) {
     if (rptValue === NONE_OPTION_VALUE) {
-      clauses.push(`(${quoteIdentifier(state.rptField)} IS NULL OR ${quoteIdentifier(state.rptField)} = '')`);
+      if (state.rptCodesField) {
+        clauses.push(`(${quoteIdentifier(state.rptCodesField)} IS NULL OR ${quoteIdentifier(state.rptCodesField)} = '')`);
+      } else {
+        clauses.push(`(${quoteIdentifier(state.rptField)} IS NULL OR ${quoteIdentifier(state.rptField)} = '')`);
+      }
+    } else if (state.rptCodesField) {
+      const needle = `|${escapeSql(rptValue)}|`;
+      clauses.push(`COALESCE(${quoteIdentifier(state.rptCodesField)}, '') LIKE '%${needle}%'`);
     } else {
       clauses.push(`${quoteIdentifier(state.rptField)} = '${escapeSql(rptValue)}'`);
     }
@@ -2390,7 +2453,9 @@ const buildMapFilter = () => {
   const serviceIdKeys = mapCandidateKeys(state.tileFields.serviceId, ["serviceId", "service_id", "id", "routeId"]);
   const serviceNameKeys = mapCandidateKeys(state.tileFields.serviceName, ["serviceName", "service_name", "name"]);
   const laKeys = mapCandidateKeys(state.tileFields.laCode, ["la_code", "laCode", "la"]);
+  const laCodesKeys = mapCandidateKeys(state.tileFields.laCodes, ["la_codes", "laCodes", "la_list"]);
   const rptKeys = mapCandidateKeys(state.tileFields.rptCode, ["rpt_code", "rptCode", "rpt"]);
+  const rptCodesKeys = mapCandidateKeys(state.tileFields.rptCodes, ["rpt_codes", "rptCodes", "rpt_list"]);
   const timeBands = getSelectedTimeBands();
 
   const modeSelection = getSelectedValues(elements.modeFilter);
@@ -2454,21 +2519,39 @@ const buildMapFilter = () => {
   }
 
   const laValue = getSelectedValue(elements.laFilter);
-  if (laValue && laKeys.length) {
-    const value = coalesceGet(laKeys, "");
+  if (laValue) {
     if (laValue === NONE_OPTION_VALUE) {
-      expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
-    } else {
+      if (laCodesKeys.length) {
+        const value = coalesceGet(laCodesKeys, "");
+        expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+      } else if (laKeys.length) {
+        const value = coalesceGet(laKeys, "");
+        expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+      }
+    } else if (laCodesKeys.length) {
+      const value = coalesceGet(laCodesKeys, "");
+      expressions.push(["in", `|${String(laValue)}|`, ["to-string", value]]);
+    } else if (laKeys.length) {
+      const value = coalesceGet(laKeys, "");
       expressions.push(["==", ["to-string", value], String(laValue)]);
     }
   }
 
   const rptValue = getSelectedValue(elements.rptFilter);
-  if (rptValue && rptKeys.length) {
-    const value = coalesceGet(rptKeys, "");
+  if (rptValue) {
     if (rptValue === NONE_OPTION_VALUE) {
-      expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
-    } else {
+      if (rptCodesKeys.length) {
+        const value = coalesceGet(rptCodesKeys, "");
+        expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+      } else if (rptKeys.length) {
+        const value = coalesceGet(rptKeys, "");
+        expressions.push(["any", ["==", ["to-string", value], ""], ["==", ["to-string", value], "null"]]);
+      }
+    } else if (rptCodesKeys.length) {
+      const value = coalesceGet(rptCodesKeys, "");
+      expressions.push(["in", `|${String(rptValue)}|`, ["to-string", value]]);
+    } else if (rptKeys.length) {
+      const value = coalesceGet(rptKeys, "");
       expressions.push(["==", ["to-string", value], String(rptValue)]);
     }
   }
@@ -2508,7 +2591,30 @@ const applyMapFilters = () => {
     return;
   }
   if (map.getLayer(state.baseLayerId)) {
-    const filter = buildMapFilter();
+    let filter = buildMapFilter();
+    // If filters are set but we cannot build a tile filter yet, retry tile field detection from rendered features.
+    if (!filter && hasAttributeFilters()) {
+      detectTileFieldsFromRendered();
+      filter = buildMapFilter();
+    }
+    if (!filter && hasAttributeFilters()) {
+      const warningKey = JSON.stringify({
+        modes: getSelectedValues(elements.modeFilter),
+        operators: getSelectedOperators().map((item) => item.value),
+        timeBands: getSelectedTimeBands(),
+        la: getSelectedValue(elements.laFilter),
+        rpt: getSelectedValue(elements.rptFilter),
+        search: getServiceSearchValue()
+      });
+      if (state.lastMapFilterWarningKey !== warningKey) {
+        state.lastMapFilterWarningKey = warningKey;
+        setStatus("Map filters could not be applied (tile attributes not detected). Try zooming in so features render, then re-apply.");
+        logEvent("warn", "Map filter build returned null with active filters.", {
+          tileFields: state.tileFields,
+          selection: warningKey
+        });
+      }
+    }
     map.setFilter(state.baseLayerId, filter);
     syncSelectedLayer();
   }
@@ -3505,7 +3611,7 @@ const loadGeojsonPreview = async () => {
   return { type: "FeatureCollection", features };
 };
 
-const onApplyFilters = async () => {
+const onApplyFilters = async (options = {}) => {
   if (state.applyingFilters) {
     state.pendingFilterApply = true;
     return;
@@ -3530,7 +3636,8 @@ const onApplyFilters = async () => {
     updateScopeChips();
     updateEvidence();
     renderLegend();
-    if (state.map) {
+    const shouldFit = options.autoFit === true;
+    if (state.map && shouldFit) {
       state.map.once("idle", () => fitMapToScope("Fitting to filtered scope..."));
     }
 
@@ -3584,7 +3691,7 @@ const onApplyFilters = async () => {
     if (state.pendingFilterApply) {
       state.pendingFilterApply = false;
       window.setTimeout(() => {
-        onApplyFilters();
+        onApplyFilters(options);
       }, 0);
     }
   }
@@ -3650,14 +3757,9 @@ const onClearFilters = () => {
   state.tablePaging.rows = [];
   state.lastQuery = null;
   clearSelection();
-  setBaseLayerFocus(false);
-  applyMapFilters();
-  updateScopeChips();
-  renderTable();
-  resetStats();
-  updateEvidence();
-  renderLegend();
-  setStatus("Filters cleared.");
+
+  // Reload full dataset selection (clearing should never leave the table empty when data exists).
+  onApplyFilters({ autoFit: false });
 };
 
 const onLoadSample = async () => {
@@ -3993,7 +4095,7 @@ const init = async () => {
       }
     }
 
-    elements.applyFilters.addEventListener("click", onApplyFilters);
+    elements.applyFilters.addEventListener("click", () => onApplyFilters({ autoFit: true }));
     elements.clearFilters.addEventListener("click", onClearFilters);
     if (elements.clearAll) {
       elements.clearAll.addEventListener("click", onClearFilters);

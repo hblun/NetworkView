@@ -1,0 +1,30 @@
+{
+  "name": "networkview",
+  "version": "0.1.0",
+  "description": "Browser-based transport route mapping and analysis tool",
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m tools.dev_server --public-dir public --data-dir data --port 5137",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint public/**/*.js tools/**/*.py",
+    "lint:fix": "eslint --fix public/**/*.js"
+  },
+  "keywords": [
+    "transport",
+    "mapping",
+    "duckdb",
+    "pmtiles",
+    "maplibre"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.0.0",
+    "@vitest/ui": "^1.0.0",
+    "eslint": "^8.55.0",
+    "jsdom": "^27.3.0",
+    "vitest": "^1.0.0"
+  }
+}
