@@ -7,21 +7,25 @@ import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0
 import { COLORS, LAYER_IDS, ROUTE_LINE_WIDTH, SELECTED_LINE_WIDTH, NONE_OPTION_VALUE, TIME_BAND_OPTIONS, FIELD_CANDIDATES, TABLE_CONFIG, EXPORT_LIMITS } from "./js/config/constants.js";
 
 // State management
-import { state, setConfig, setMap, setDuckDBConnection, setSpatialReady, setSelectedFeature, clearSelectedFeature, setTableRows, setColumns } from "./js/state/manager.js";
+import { state, setConfig, setMap, setDuckDBConnection, setSpatialReady, setSelectedFeature, clearSelectedFeature, setTableRows, setColumns, setSpatialMatchSet, clearSpatialMatchSet, setSpatialPoint, setSpatialPickingPoint } from "./js/state/manager.js";
 
 // Utilities
 import { escapeSql, quoteIdentifier, buildInClause, escapeLikePattern } from "./js/utils/sql.js";
 import { generateColor, rgbaToHex, hslToRgb, hashString } from "./js/utils/colors.js";
 import { clearElement, escapeHtml, getProp, getSelectedValues, getSelectedValue, formatCount, toNumber } from "./js/utils/dom.js";
 import { joinUrl, toAbsoluteUrl, addCacheBuster } from "./js/utils/url.js";
-import { getGeometryCoordinates, getFeaturesBbox, isValidBbox } from "./js/utils/geometry.js";
+import { getGeometryCoordinates, getFeaturesBbox, isValidBbox, createCirclePolygon } from "./js/utils/geometry.js";
 
 // Domain modules
 import { initDuckDb, executeQuery, countRows, detectSchemaFields } from "./js/duckdb/client.js";
-import { buildWhere, buildBboxFilter, buildCombinedWhere, hasAttributeFilters, getSelectedOperators, getSelectedTimeBands, getServiceSearchValue } from "./js/filters/builder.js";
+import { buildWhere, buildCombinedWhere, hasAttributeFilters, getSelectedOperators, getSelectedTimeBands, getServiceSearchValue } from "./js/filters/builder.js";
 import { fitMapToBbox, fitMapToScope, buildMapFilter, detectTileFieldsFromRendered } from "./js/map/utils.js";
 import { renderTable, renderTableHead, getTableColumns, fetchTablePage, ensureTablePageFor, queryTable } from "./js/table/renderer.js";
 import { queryCsv, queryGeoJson, downloadFile, confirmLargeExport, onDownloadCsv, onDownloadGeojson } from "./js/exports/handlers.js";
+import { initSpatialLogicBuilder } from "./js/spatial/builder.js";
+import { getSpatialLogicEvidencePart } from "./js/spatial/evidence.js";
+import { loadSpatialLogicRunner } from "./js/spatial/runner.js";
+import { applySpatialLogic } from "./js/spatial/execute.js";
 
 const elements = {
   datasetDate: document.getElementById("dataset-date"),
@@ -72,8 +76,13 @@ const elements = {
   dataInspectorFilter: document.getElementById("data-inspector-filter"),
   dataInspectorExpand: document.getElementById("data-inspector-expand"),
   placeSearch: document.getElementById("place-search"),
-  placeSearchResults: document.getElementById("place-search-results")
+  placeSearchResults: document.getElementById("place-search-results"),
+  spatialLogicTool: document.getElementById("spatial-logic-tool"),
+  spatialLogicPickPoint: document.querySelector("[data-slb-pick-point]"),
+  spatialLogicPointLabel: document.querySelector("[data-slb-point-label]")
 };
+
+let geocoderMarker = null;
 
 // NONE_OPTION_VALUE, state, constants, and utilities now imported from modules
 
@@ -94,10 +103,70 @@ const getCurrentFilters = () => ({
   timeBands: getSelectedTimeBands(elements.timeBandFilter),
   serviceSearch: getServiceSearchValue(elements.serviceSearch),
   laValue: getSelectedValue(elements.laFilter),
-  rptValue: getSelectedValue(elements.rptFilter)
+  rptValue: getSelectedValue(elements.rptFilter),
+  serviceIds: state.spatialQuery?.serviceIds || [],
+  serviceIdsActive: Boolean(state.spatialQuery?.active),
+  bbox: Boolean(elements.bboxFilter?.checked)
 });
 
 const getTimeBandLabel = (key) => TIME_BAND_OPTIONS.find((option) => option.key === key)?.label || key;
+
+const formatPointLabel = (point) => {
+  if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) {
+    return "Not set";
+  }
+  return `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`;
+};
+
+const updateSpatialPointLabel = () => {
+  if (!elements.spatialLogicPointLabel) {
+    return;
+  }
+  elements.spatialLogicPointLabel.textContent = formatPointLabel(state.spatialQuery?.point);
+};
+
+const getSpatialRadiusFromCompiled = (compiled) => {
+  const blocks = compiled?.blocks || [];
+  const match = blocks.find((block) =>
+    block?.relation === "within" && (block?.target === "selected_point" || block?.find === "selected_point")
+  );
+  if (!match) {
+    return null;
+  }
+  const distance = Number(match.distance);
+  return Number.isFinite(distance) && distance > 0 ? distance : null;
+};
+
+const updateSpatialPointOverlay = () => {
+  const map = state.map;
+  if (!map) {
+    return;
+  }
+  const pointSource = map.getSource(LAYER_IDS.SPATIAL_POINT);
+  const radiusSource = map.getSource(LAYER_IDS.SPATIAL_RADIUS);
+  if (!pointSource || !radiusSource) {
+    return;
+  }
+  const point = state.spatialQuery?.point;
+  const radius = getSpatialRadiusFromCompiled(state.spatialBuilder?.compiled);
+
+  const pointFeature = point
+    ? {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [point.lng, point.lat] }
+      }
+    : null;
+  pointSource.setData({
+    type: "FeatureCollection",
+    features: pointFeature ? [pointFeature] : []
+  });
+
+  const circle = point && radius ? createCirclePolygon(point, radius) : null;
+  radiusSource.setData({
+    type: "FeatureCollection",
+    features: circle ? [{ type: "Feature", geometry: circle }] : []
+  });
+};
 
 const getFeatureFlag = (config, name, defaultValue = false) => {
   const features = config?.features || config?.ui?.features || {};
@@ -362,6 +431,17 @@ const hideDropdown = (element) => {
   element.innerHTML = "";
 };
 
+const clearGeocoderSelection = () => {
+  if (geocoderMarker) {
+    geocoderMarker.remove();
+    geocoderMarker = null;
+  }
+  if (elements.placeSearch) {
+    elements.placeSearch.value = "";
+  }
+  hideDropdown(elements.placeSearchResults);
+};
+
 const dropdownState = new WeakMap();
 
 const renderDropdownItems = (container, items, onPick) => {
@@ -580,7 +660,7 @@ const updateEvidence = () => {
   const meta = state.metadata || {};
   const generatedAt = meta.generatedAt || meta.lastUpdated || "Unknown";
   const total = meta.counts?.total ?? meta.total ?? null;
-  const where = buildWhere(getCurrentFilters());
+  const where = getCombinedWhere();
   const hasFilters = Boolean(where);
   const hint = hasFilters ? "Filtered view" : "Full dataset";
 
@@ -600,6 +680,7 @@ const updateEvidence = () => {
       ? `Selection: <strong class="font-semibold">${formatCount(selectionCount)}</strong>`
       : null,
     limitNote ? `Limit: <strong class="font-semibold">${limitNote}</strong>` : null,
+    getSpatialLogicEvidencePart(),
     `Updated: <strong class="font-semibold">${generatedAt}</strong>`
   ].filter(Boolean);
   elements.evidenceLeft.innerHTML = leftParts.map((p) => `<span>${p}</span>`).join("");
@@ -1040,6 +1121,9 @@ const showGeojsonOnMap = (geojson) => {
   if (!state[bindKey]) {
     state[bindKey] = true;
     map.on("click", layerId, (event) => {
+      if (state.spatialQuery?.pickingPoint) {
+        return;
+      }
       const feature = event.features?.[0];
       if (!feature) {
         clearSelection();
@@ -1552,6 +1636,12 @@ const onClearFilters = () => {
   if (elements.serviceSearch) {
     elements.serviceSearch.value = "";
   }
+  clearGeocoderSelection();
+  clearSpatialMatchSet();
+  setSpatialPoint(null);
+  setSpatialPickingPoint(false);
+  updateSpatialPointLabel();
+  updateSpatialPointOverlay();
   setPreview("No filters applied.");
   if (state.overlay) {
     state.overlay.setProps({ layers: [] });
@@ -1884,6 +1974,27 @@ const initMap = (config) => {
   map.on("zoomstart", markUserMoved);
   map.on("rotatestart", markUserMoved);
 
+  map.on("click", (event) => {
+    if (!state.spatialQuery?.pickingPoint) {
+      return;
+    }
+    setSpatialPickingPoint(false);
+    const point = { lng: event.lngLat.lng, lat: event.lngLat.lat };
+    setSpatialPoint(point);
+    updateSpatialPointLabel();
+    updateSpatialPointOverlay();
+    if (state.spatialBuilder?.compiled) {
+      applySpatialLogic(state.spatialBuilder.compiled, {
+        setStatus,
+        setMatchSet: setSpatialMatchSet,
+        config: state.config
+      }).then(() => {
+        onApplyFilters({ autoFit: false });
+      });
+    }
+    setStatus("Point selected.");
+  });
+
   let viewportRefreshTimer = null;
   const maybeRefreshViewportScope = () => {
     if (!state.conn) {
@@ -1924,6 +2035,44 @@ const initMap = (config) => {
     });
 
   map.on("load", () => {
+    if (!map.getSource(LAYER_IDS.SPATIAL_POINT)) {
+      map.addSource(LAYER_IDS.SPATIAL_POINT, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+    }
+    if (!map.getLayer(LAYER_IDS.SPATIAL_POINT)) {
+      map.addLayer({
+        id: LAYER_IDS.SPATIAL_POINT,
+        type: "circle",
+        source: LAYER_IDS.SPATIAL_POINT,
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#2563eb",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2
+        }
+      });
+    }
+    if (!map.getSource(LAYER_IDS.SPATIAL_RADIUS)) {
+      map.addSource(LAYER_IDS.SPATIAL_RADIUS, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+    }
+    if (!map.getLayer(LAYER_IDS.SPATIAL_RADIUS)) {
+      map.addLayer({
+        id: LAYER_IDS.SPATIAL_RADIUS,
+        type: "line",
+        source: LAYER_IDS.SPATIAL_RADIUS,
+        paint: {
+          "line-color": "#2563eb",
+          "line-width": 2,
+          "line-opacity": 0.6
+        }
+      });
+    }
+
     const addBoundaryLayer = (key, configKey, layerKey, color, codeField) => {
       const file = config[configKey];
       if (!file) {
@@ -2011,6 +2160,14 @@ const initMap = (config) => {
             map.moveLayer(entry.layerId);
           }
         });
+
+        // Ensure spatial point overlays render above routes.
+        if (map.getLayer(LAYER_IDS.SPATIAL_RADIUS)) {
+          map.moveLayer(LAYER_IDS.SPATIAL_RADIUS, "routes-line");
+        }
+        if (map.getLayer(LAYER_IDS.SPATIAL_POINT)) {
+          map.moveLayer(LAYER_IDS.SPATIAL_POINT);
+        }
       };
 
       const configured = config.vectorLayer || "routes";
@@ -2242,10 +2399,12 @@ const getViewportKey = () => {
 };
 
 const getFilterKey = () => {
-  const where = buildWhere(getCurrentFilters());
+  const where = getCombinedWhere();
   const viewport = getViewportKey();
   return `${where}|${viewport}`;
 };
+
+const getCombinedWhere = () => buildCombinedWhere(getCurrentFilters(), state.map, Boolean(elements.bboxFilter?.checked));
 
 const buildBooleanTileMatch = (field) => [
   "any",
@@ -2316,7 +2475,7 @@ const syncSelectedLayer = () => {
 };
 
 const queryCount = async () => {
-  const where = buildWhere(getCurrentFilters());
+  const where = getCombinedWhere();
   const result = await state.conn.query(
     `SELECT COUNT(*) AS count FROM read_parquet('routes.parquet') ${where}`
   );
@@ -2373,7 +2532,7 @@ const updateStats = async (countOverride) => {
   if (!state.conn || !elements.statsGrid) {
     return;
   }
-  const where = buildWhere(getCurrentFilters());
+  const where = getCombinedWhere();
   setStatsHint("Updating stats...");
   try {
     const summary = await queryStatsSummary(where);
@@ -2630,6 +2789,42 @@ const init = async () => {
       });
     }
     initTabs();
+    let spatialLogicRunner = null;
+    if (elements.spatialLogicTool && !elements.spatialLogicTool.hidden) {
+      spatialLogicRunner = await loadSpatialLogicRunner(state.config, setStatus);
+      initSpatialLogicBuilder(
+        elements.spatialLogicTool,
+        {
+          onChange: async (compiled) => {
+            await applySpatialLogic(compiled, {
+              setStatus,
+              setMatchSet: setSpatialMatchSet,
+              config: state.config
+            });
+            updateEvidence();
+            updateSpatialPointOverlay();
+            onApplyFilters({ autoFit: false });
+          },
+          onRun: async (compiled) => {
+            await applySpatialLogic(compiled, {
+              setStatus,
+              setMatchSet: setSpatialMatchSet,
+              config: state.config
+            });
+            updateSpatialPointOverlay();
+            onApplyFilters({ autoFit: true });
+          }
+        },
+        spatialLogicRunner
+      );
+      updateSpatialPointLabel();
+      if (elements.spatialLogicPickPoint) {
+        elements.spatialLogicPickPoint.addEventListener("click", () => {
+          setSpatialPickingPoint(true);
+          setStatus("Click the map to set a point.");
+        });
+      }
+    }
     resetStats();
     renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
     if (!state.tableEventsBound && elements.dataTableBody) {
@@ -2824,7 +3019,6 @@ const init = async () => {
     // Place search (feature-flagged geocoder).
     if (getFeatureFlag(state.config, "geocoder", false) && elements.placeSearch && elements.placeSearchResults) {
       let timer = null;
-      const marker = new maplibregl.Marker({ color: "#2563eb" });
       const geocoder = state.config.geocoder || {};
       const endpoint = geocoder.endpoint || "https://nominatim.openstreetmap.org/search";
       const countryCodes = geocoder.countryCodes || "gb";
@@ -2879,7 +3073,13 @@ const init = async () => {
             } else {
               state.map.flyTo({ center: [item.lon, item.lat], zoom: 12.5, duration: 500 });
             }
-            marker.setLngLat([item.lon, item.lat]).addTo(state.map);
+            if (!geocoderMarker) {
+              geocoderMarker = new maplibregl.Marker({ color: "#2563eb" });
+            }
+            geocoderMarker.setLngLat([item.lon, item.lat]).addTo(state.map);
+            setSpatialPoint({ lng: item.lon, lat: item.lat });
+            updateSpatialPointLabel();
+            updateSpatialPointOverlay();
             updateEvidence();
           }
         });

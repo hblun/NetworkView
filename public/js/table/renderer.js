@@ -8,7 +8,7 @@
 import { state } from "../state/manager.js";
 import { clearElement, formatCount, toNumber } from "../utils/dom.js";
 import { quoteIdentifier } from "../utils/sql.js";
-import { buildWhere } from "../filters/builder.js";
+import { buildCombinedWhere } from "../filters/builder.js";
 
 /**
  * Get columns to display in the table based on available data
@@ -145,7 +145,7 @@ export const measureRowHeight = (tableBody, renderCallback) => {
  * @returns {Promise<void>}
  */
 export const fetchTablePage = async (offset, pageSize, queryKey, filters = {}) => {
-  const where = buildWhere(filters);
+  const where = buildCombinedWhere(filters, state.map, Boolean(filters.bbox));
   const cols = getTableColumns().map((c) => c.key);
   const selectList = cols.length ? cols.map(quoteIdentifier).join(", ") : "*";
   const order = state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "1";
@@ -335,7 +335,7 @@ export const renderTable = (elements, getSelectedServiceId, setStatus, updateEvi
  * @returns {Promise<Array>} Array of row objects
  */
 export const queryTable = async (limit = 250, offset = 0, filters = {}) => {
-  const where = buildWhere(filters);
+  const where = buildCombinedWhere(filters, state.map, Boolean(filters.bbox));
   const cols = getTableColumns().map((c) => c.key);
   const selectList = cols.length ? cols.map(quoteIdentifier).join(", ") : "*";
   const query = `

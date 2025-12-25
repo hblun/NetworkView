@@ -47,14 +47,24 @@ export const getSelectedTimeBands = (timeBandFilter) => {
  * @returns {boolean} True if any filters are active
  */
 export const hasAttributeFilters = (filters) => {
-  const { modes = [], operators = [], timeBands = [], serviceSearch = "", laValue = "", rptValue = "" } = filters;
+  const {
+    modes = [],
+    operators = [],
+    timeBands = [],
+    serviceSearch = "",
+    laValue = "",
+    rptValue = "",
+    serviceIds = [],
+    serviceIdsActive = false
+  } = filters;
   return (
     modes.length > 0 ||
     operators.length > 0 ||
     timeBands.length > 0 ||
     Boolean(serviceSearch) ||
     Boolean(laValue) ||
-    Boolean(rptValue)
+    Boolean(rptValue) ||
+    (serviceIdsActive && Array.isArray(serviceIds))
   );
 };
 
@@ -71,7 +81,16 @@ export const hasAttributeFilters = (filters) => {
  */
 export const buildWhere = (filters) => {
   const clauses = [];
-  const { modes = [], operators = [], timeBands = [], serviceSearch = "", laValue = "", rptValue = "" } = filters;
+  const {
+    modes = [],
+    operators = [],
+    timeBands = [],
+    serviceSearch = "",
+    laValue = "",
+    rptValue = "",
+    serviceIds = [],
+    serviceIdsActive = false
+  } = filters;
 
   // Mode filter
   if (modes.length) {
@@ -217,6 +236,17 @@ export const buildWhere = (filters) => {
     }
   }
 
+  // Service ID filter (from spatial logic)
+  if (serviceIdsActive) {
+    const field = state.serviceIdField || (state.columns.includes("serviceId") ? "serviceId" : "");
+    if (!serviceIds.length) {
+      clauses.push("FALSE");
+    } else if (field) {
+      const list = serviceIds.map((value) => `'${escapeSql(value)}'`).join(", ");
+      clauses.push(`${quoteIdentifier(field)} IN (${list})`);
+    }
+  }
+
   return clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 };
 
@@ -226,7 +256,7 @@ export const buildWhere = (filters) => {
  * @returns {string} SQL WHERE clause for viewport or empty string
  */
 export const buildBboxFilter = (map) => {
-  if (!map || !state.bboxReady) {
+  if (!map) {
     return "";
   }
 
@@ -243,7 +273,19 @@ export const buildBboxFilter = (map) => {
   const maxLon = ne.lng;
   const maxLat = ne.lat;
 
+  if (state.spatialReady && state.geometryField) {
+    const geomField = quoteIdentifier(state.geometryField);
+    return `ST_Intersects(${geomField}, ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}))`;
+  }
+
+  if (!state.bboxReady || !state.bboxFields) {
+    return "";
+  }
+
   const { minx, miny, maxx, maxy } = state.bboxFields;
+  if (!minx || !miny || !maxx || !maxy) {
+    return "";
+  }
 
   return `(
     ${quoteIdentifier(maxx)} >= ${minLon} AND

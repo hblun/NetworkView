@@ -7,7 +7,7 @@
 
 import { state } from "../state/manager.js";
 import { quoteIdentifier, escapeSql } from "../utils/sql.js";
-import { buildWhere } from "../filters/builder.js";
+import { buildCombinedWhere } from "../filters/builder.js";
 import { EXPORT_LIMITS } from "../config/constants.js";
 
 /**
@@ -41,7 +41,7 @@ export const getCsvColumns = () => {
  * @returns {Promise<Object>} GeoJSON FeatureCollection
  */
 export const queryGeoJson = async (limit = 50000, filters = {}) => {
-  const where = buildWhere(filters);
+  const where = buildCombinedWhere(filters, state.map, Boolean(filters.bbox));
 
   if (state.geojsonField) {
     // Approach 1: geojson column exists
@@ -126,7 +126,7 @@ export const queryGeoJson = async (limit = 50000, filters = {}) => {
  * @returns {Promise<string>} CSV string
  */
 export const queryCsv = async (limit = 50000, filters = {}) => {
-  const where = buildWhere(filters);
+  const where = buildCombinedWhere(filters, state.map, Boolean(filters.bbox));
   const columns = getCsvColumns();
   const selectList = columns.length ? columns.map(quoteIdentifier).join(", ") : "*";
   const query = `

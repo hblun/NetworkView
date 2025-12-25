@@ -163,8 +163,20 @@ describe("Filter Builder", () => {
       expect(result).toContain(">=");
       expect(result).toContain("-5");
     });
-  });
 
+    it("should build bbox filter using geometry when spatial is available", () => {
+      state.spatialReady = true;
+      state.geometryField = "geom";
+      const mockMap = {
+        getBounds: () => ({
+          getSouthWest: () => ({ lng: -5, lat: 50 }),
+          getNorthEast: () => ({ lng: 5, lat: 60 })
+        })
+      };
+      const result = buildBboxFilter(mockMap);
+      expect(result).toBe('ST_Intersects("geom", ST_MakeEnvelope(-5, 50, 5, 60))');
+    });
+  });
   describe("buildCombinedWhere", () => {
     const mockMap = {
       getBounds: () => ({
