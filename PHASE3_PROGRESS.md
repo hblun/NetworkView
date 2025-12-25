@@ -7,10 +7,11 @@ Successfully integrated extracted modules into app.js and removed duplicate code
 ## Metrics
 
 - **Starting Line Count**: 4,354 lines
-- **Current Line Count**: 3,540 lines
-- **Lines Removed**: 814 lines (18.7% reduction)
+- **Current Line Count**: 3,423 lines
+- **Lines Removed**: 931 lines (21.4% reduction)
 - **Tests**: All 107 tests passing ✅
 - **Linting**: app.js lints cleanly ✅
+- **Branch**: `phase-3-integration` (pushed to remote)
 
 ## Code Removed from app.js
 
@@ -62,13 +63,21 @@ Successfully integrated extracted modules into app.js and removed duplicate code
 - `queryGeoJson` (49 lines)
 - `queryCsv` (33 lines)
 
-### Map Utilities (68 lines)
+### Map Utilities (148 lines)
 - `fitMapToBbox` (36 lines)
 - `fitMapToScope` (32 lines)
+- `detectTileFieldsFromRendered` (80 lines)
+
+### Additional Export Utilities (65 lines)
+- `formatBytes`
+- `getResultColumns`
+- `getCsvColumns`
+- `estimateExportBytes`
+- `confirmLargeExport` (duplicate)
 
 ## Remaining Work
 
-The current line count of 3,540 is still above the target of <1,000 lines. Additional opportunities for reduction:
+The current line count of 3,423 is still above the target of <1,000 lines. Additional opportunities for reduction:
 
 1. **Table Rendering Functions** (~250 lines)
    - `renderTableHead`
