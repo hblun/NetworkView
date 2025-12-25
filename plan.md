@@ -384,5 +384,32 @@ Once those two are working, you’ll have a genuinely usable planner tool.
 - The current data assets (`routes.pmtiles`, `routes.parquet`, `metadata.json`) plus `public/config.json` and `README.md` define the minimal steps for running locally and updating datasets.
 
 ### Follow-up
-- Added `BASELINE.md` to capture this snapshot (assets, dependencies, run commands, limitations) so future updates can compare against today’s working surface.
-- No automated verification scripts exist yet; the earliest follow-ups should include smoke checks for metadata/parquet freshness and a short “does `config.json` still point to the right R2 bucket?” routine.
+- Added `BASELINE.md` to capture this snapshot (assets, dependencies, run commands, limitations) so future updates can compare against today's working surface.
+- No automated verification scripts exist yet; the earliest follow-ups should include smoke checks for metadata/parquet freshness and a short "does `config.json` still point to the right R2 bucket?" routine.
+
+## Recent updates (2025-12-25)
+
+### Vibe Kanban Web Companion integration
+- **Build pipeline added**: Migrated from static HTML/JS to Vite + React build system
+  - Added `package.json` with npm as package manager
+  - Configured Vite with `@vitejs/plugin-react` for React/JSX support
+  - Created `tsconfig.json` for TypeScript type checking (allowJs mode for gradual migration)
+  - Build output: `dist/` directory with bundled assets
+- **vibe-kanban-web-companion installed**: Point-and-click edit functionality integrated
+  - Installed `vibe-kanban-web-companion@^0.0.5` with React 18 dependencies
+  - Created `public/vibe-companion.js` wrapper module for initialization
+  - Modified `public/boot.js` to conditionally load companion based on feature flag
+  - Component renders at app root in a dedicated React root container
+- **Feature flag configuration**:
+  - Added `features.vibeKanbanWebCompanion` flag to both `config.json` and `config.sample.json`
+  - Default: enabled (`true`)
+  - Companion loads only when flag is enabled, gracefully degrades if disabled
+- **Development workflow**:
+  - `npm run dev` - Start Vite dev server on port 5137
+  - `npm run build` - Build production bundle to `dist/`
+  - `npm run preview` - Preview production build
+  - `npm run type-check` - TypeScript validation
+- **Compatibility**: Build maintains backward compatibility with existing `app.js` and static assets
+  - Original static files remain in `public/` directory
+  - Vite serves from `public/` as root during development
+  - Production builds bundle everything to `dist/` with proper asset handling

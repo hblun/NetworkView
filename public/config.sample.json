@@ -18,5 +18,8 @@
       "badge": "Static + Filters"
     },
     "footer": ""
+  },
+  "features": {
+    "vibeKanbanWebCompanion": true
   }
 }

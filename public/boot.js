@@ -20,8 +20,23 @@ window.addEventListener("unhandledrejection", (event) => {
 
 setStatus("Booting up...");
 
+const loadVibeCompanion = async (config) => {
+  if (config?.features?.vibeKanbanWebCompanion) {
+    try {
+      const { initVibeKanbanCompanion } = await import("./vibe-companion.js");
+      initVibeKanbanCompanion();
+    } catch (error) {
+      console.warn("Failed to load Vibe Kanban Web Companion:", error);
+    }
+  }
+};
+
 const loadApp = async () => {
   try {
+    const configRes = await fetch("./config.json");
+    const config = await configRes.json();
+
+    await loadVibeCompanion(config);
     await import("./app.js");
     setStatus("Loading app...");
   } catch (error) {

@@ -1,31 +1,60 @@
-# Frontend (MapLibre + deck.gl)
+# Network View (MapLibre + deck.gl + Vite)
 
-This folder contains a static frontend that renders routes with MapLibre + deck.gl
-and supports client-side filtering + exports using DuckDB-WASM.
+A web-based route visualization platform built with MapLibre, deck.gl, and DuckDB-WASM.
+Now includes Vibe Kanban Web Companion for enhanced development workflow.
 
-## Quick start (sample data)
-1) Copy the sample config:
+## Quick start (development)
 
+1) Install dependencies:
+
+```bash
+npm install
 ```
-cp frontend/public/config.sample.json frontend/public/config.json
+
+2) Copy the sample config (if needed):
+
+```bash
+cp public/config.sample.json public/config.json
 ```
 
-2) Download DuckDB-WASM assets locally (avoids cross-origin worker errors):
+3) Start the Vite dev server:
 
+```bash
+npm run dev
 ```
+
+The app will open at `http://localhost:5137` with hot module reloading enabled.
+
+### Features
+
+- **Vibe Kanban Web Companion**: Point-and-click edit functionality for rapid development
+  - Enabled by default via `features.vibeKanbanWebCompanion` flag in `config.json`
+  - Works seamlessly with Vite's React integration
+- **MapLibre + PMTiles**: Efficient vector tile rendering
+- **DuckDB-WASM**: Client-side data analysis and exports
+- **deck.gl**: Advanced data visualization overlays
+
+### Available Scripts
+
+- `npm run dev` - Start Vite development server with HMR
+- `npm run build` - Build production bundle to `dist/`
+- `npm run preview` - Preview production build locally
+- `npm run type-check` - Run TypeScript type checking
+
+## Legacy development (static files)
+
+For development without the build pipeline:
+
+1) Download DuckDB-WASM assets locally (avoids cross-origin worker errors):
+
+```bash
 bash tools/fetch_duckdb_assets.sh
 ```
 
-3) Start a local server (Range-enabled):
+2) Start a local server (Range-enabled):
 
-```
-python3 -m tools.dev_server --directory frontend/public --port 5137
-```
-
-4) Open:
-
-```
-http://localhost:5137
+```bash
+python3 -m tools.dev_server --directory public --port 5137
 ```
 
 Use **Load sample preview** to see routes without any large data files.
@@ -47,12 +76,21 @@ The build script also embeds:
 - `bbox_minx/bbox_miny/bbox_maxx/bbox_maxy` columns (for bbox filtering without spatial)
 
 ## Deploy to Cloudflare Pages + R2
-1) Upload artifacts to an R2 bucket:
+
+1) Build the production bundle:
+
+```bash
+npm run build
+```
+
+2) Upload data artifacts to an R2 bucket:
    - `routes.pmtiles`
    - `routes.parquet`
    - `metadata.json`
-2) Enable CORS + Range requests on the bucket.
-3) Update `frontend/public/config.json`:
+
+3) Enable CORS + Range requests on the bucket.
+
+4) Update `public/config.json`:
 
 ```json
 {
@@ -61,11 +99,16 @@ The build script also embeds:
   "parquetFile": "routes.parquet",
   "metadataFile": "metadata.json",
   "vectorLayer": "routes",
-  "duckdbBaseUrl": "duckdb"
+  "duckdbBaseUrl": "duckdb",
+  "features": {
+    "vibeKanbanWebCompanion": false
+  }
 }
 ```
 
-4) Deploy `frontend/public` to Cloudflare Pages (no build step).
+**Note**: Set `features.vibeKanbanWebCompanion` to `false` in production to disable the companion.
+
+5) Deploy the `dist/` directory to Cloudflare Pages.
 
 ## Notes
 - If `pmtilesFile` is empty, the map renders the basemap only.
