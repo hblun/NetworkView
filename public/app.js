@@ -10,11 +10,15 @@ const elements = {
   modeFilter: document.getElementById("mode-filter"),
   operatorFilter: document.getElementById("operator-filter"),
   bboxFilter: document.getElementById("bbox-filter"),
+  advancedToggle: document.getElementById("advanced-toggle"),
+  advancedToggleIcon: document.getElementById("advanced-toggle-icon"),
+  advancedPanel: document.getElementById("advanced-panel"),
   applyFilters: document.getElementById("apply-filters"),
   clearFilters: document.getElementById("clear-filters"),
   clearAll: document.getElementById("clear-all"),
   scopeChips: document.getElementById("scope-chips"),
   serviceSearch: document.getElementById("service-search"),
+  serviceSearchResults: document.getElementById("service-search-results"),
   loadSample: document.getElementById("load-sample"),
   downloadGeojson: document.getElementById("download-geojson"),
   downloadCsv: document.getElementById("download-csv"),
@@ -31,11 +35,18 @@ const elements = {
   dataTableHead: document.getElementById("data-table-head"),
   dataTableBody: document.getElementById("data-table-body"),
   dataTableEmpty: document.getElementById("data-table-empty"),
+  tableMeta: document.getElementById("table-meta"),
   evidenceLeft: document.getElementById("evidence-left"),
   evidenceRight: document.getElementById("evidence-right"),
   legendItems: document.getElementById("legend-items"),
   zoomIn: document.getElementById("zoom-in"),
-  zoomOut: document.getElementById("zoom-out")
+  zoomOut: document.getElementById("zoom-out"),
+  sidebar: document.getElementById("sidebar"),
+  dataInspector: document.getElementById("data-inspector"),
+  dataInspectorFilter: document.getElementById("data-inspector-filter"),
+  dataInspectorExpand: document.getElementById("data-inspector-expand"),
+  placeSearch: document.getElementById("place-search"),
+  placeSearchResults: document.getElementById("place-search-results")
 };
 
 const NONE_OPTION_VALUE = "__NONE__";
@@ -82,6 +93,9 @@ const state = {
 
 const ROUTE_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 0.9, 8, 1.3, 11, 2.2, 14, 3.6];
 const SELECTED_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 2.2, 8, 3.0, 11, 4.4, 14, 6.2];
+const DEFAULT_ROUTE_COLOR = "#d6603b";
+const PREVIEW_ROUTE_COLOR = "#165570";
+const SELECTED_ROUTE_COLOR = "#f59e0b";
 
 const escapeSql = (value) => String(value).replace(/'/g, "''");
 const quoteIdentifier = (value) => `"${String(value).replace(/"/g, '""')}"`;
@@ -180,6 +194,173 @@ const applyFeatureFlags = (config) => {
   }
 };
 
+const showDropdown = (element) => {
+  if (!element) return;
+  element.classList.remove("hidden");
+};
+
+const hideDropdown = (element) => {
+  if (!element) return;
+  element.classList.add("hidden");
+  element.innerHTML = "";
+};
+
+const dropdownState = new WeakMap();
+
+const renderDropdownItems = (container, items, onPick) => {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!items.length) {
+    hideDropdown(container);
+    return;
+  }
+  container.setAttribute("role", "listbox");
+  dropdownState.set(container, { items, active: -1, onPick });
+  items.forEach((item, idx) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className =
+      "w-full text-left px-3 py-2 text-xs hover:bg-slate-50 border-b border-border last:border-b-0";
+    row.innerHTML = item.html;
+    row.setAttribute("role", "option");
+    row.dataset.index = String(idx);
+    row.addEventListener("click", () => onPick(item, idx));
+    container.appendChild(row);
+  });
+  showDropdown(container);
+};
+
+const setDropdownActive = (container, nextIndex) => {
+  if (!container) return;
+  const state = dropdownState.get(container);
+  if (!state || !state.items.length) return;
+  const items = Array.from(container.querySelectorAll("[data-index]"));
+  const max = items.length - 1;
+  const idx = Math.max(0, Math.min(max, nextIndex));
+  state.active = idx;
+  dropdownState.set(container, state);
+  items.forEach((node) => {
+    const isActive = Number(node.dataset.index) === idx;
+    node.classList.toggle("bg-slate-50", isActive);
+  });
+  const activeEl = items[idx];
+  if (activeEl && typeof activeEl.scrollIntoView === "function") {
+    activeEl.scrollIntoView({ block: "nearest" });
+  }
+};
+
+const handleDropdownKeyNav = (event, inputEl, dropdownEl) => {
+  if (!dropdownEl || dropdownEl.classList.contains("hidden")) {
+    return false;
+  }
+  const state = dropdownState.get(dropdownEl);
+  if (!state || !state.items.length) {
+    return false;
+  }
+  if (event.key === "Escape") {
+    hideDropdown(dropdownEl);
+    return true;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    setDropdownActive(dropdownEl, (state.active ?? -1) + 1);
+    return true;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    setDropdownActive(dropdownEl, (state.active ?? 0) - 1);
+    return true;
+  }
+  if (event.key === "Enter") {
+    const idx = state.active;
+    if (idx >= 0 && idx < state.items.length) {
+      event.preventDefault();
+      const item = state.items[idx];
+      state.onPick?.(item, idx);
+      hideDropdown(dropdownEl);
+      inputEl?.blur?.();
+      return true;
+    }
+  }
+  return false;
+};
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const tokenizeQuery = (value) =>
+  String(value || "")
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\w\-]/g, ""))
+    .filter(Boolean)
+    .slice(0, 6);
+
+const queryServiceSuggestions = async (query, limit = 12) => {
+  if (!state.conn) {
+    return [];
+  }
+  const tokens = tokenizeQuery(query);
+  if (!tokens.length) {
+    return [];
+  }
+
+  const likeClauses = tokens.map((token) => {
+    const q = escapeSql(token.toLowerCase());
+    const like = `'%${q}%'`;
+    const parts = [];
+    if ((state.columns || []).includes("serviceName")) {
+      parts.push(`LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE ${like}`);
+    }
+    if ((state.columns || []).includes("serviceId")) {
+      parts.push(`LOWER(CAST(${quoteIdentifier("serviceId")} AS VARCHAR)) LIKE ${like}`);
+    }
+    if ((state.columns || []).includes("operatorName")) {
+      parts.push(`LOWER(CAST(${quoteIdentifier("operatorName")} AS VARCHAR)) LIKE ${like}`);
+    }
+    return parts.length ? `(${parts.join(" OR ")})` : "TRUE";
+  });
+
+  const where = likeClauses.length ? `WHERE ${likeClauses.join(" AND ")}` : "";
+  const q0 = escapeSql(tokens[0].toLowerCase());
+  const exactId = (state.columns || []).includes("serviceId")
+    ? `CASE WHEN LOWER(CAST(${quoteIdentifier("serviceId")} AS VARCHAR)) = '${q0}' THEN 3 ELSE 0 END`
+    : "0";
+  const prefixName = (state.columns || []).includes("serviceName")
+    ? `CASE WHEN LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE '${q0}%' THEN 2 ELSE 0 END`
+    : "0";
+  const containsName = (state.columns || []).includes("serviceName")
+    ? `CASE WHEN LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE '%${q0}%' THEN 1 ELSE 0 END`
+    : "0";
+
+  const score = `(${exactId} + ${prefixName} + ${containsName})`;
+  const querySql = `
+    SELECT
+      ${score} AS _score,
+      ${state.columns.includes("serviceId") ? quoteIdentifier("serviceId") : "NULL"} AS serviceId,
+      ${state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "NULL"} AS serviceName,
+      ${state.columns.includes("operatorName") ? quoteIdentifier("operatorName") : "NULL"} AS operatorName,
+      ${state.columns.includes("mode") ? quoteIdentifier("mode") : "NULL"} AS mode
+    FROM read_parquet('routes.parquet')
+    ${where}
+    ORDER BY _score DESC, serviceName ASC
+    LIMIT ${Math.max(1, Math.min(limit, 25))}
+  `;
+
+  const result = await state.conn.query(querySql);
+  return result.toArray().map((row) => ({
+    serviceId: row.serviceId ?? "",
+    serviceName: row.serviceName ?? "",
+    operatorName: row.operatorName ?? "",
+    mode: row.mode ?? ""
+  }));
+};
+
 const getLayerVisible = (map, layerId) => {
   if (!map || !layerId || !map.getLayer(layerId)) {
     return false;
@@ -196,22 +377,23 @@ const renderLegend = () => {
   const items = [];
 
   if (getLayerVisible(map, "routes-line")) {
+    const colorMode = state.colorByOperator ? "Operator" : "Default";
     items.push({
-      swatch: '<span class="w-3 h-1 bg-[#d6603b] rounded-full"></span>',
-      label: "Route lines"
+      swatch: `<span class="w-3 h-1 rounded-full" style="background:${DEFAULT_ROUTE_COLOR}"></span>`,
+      label: `Route lines (${colorMode})`
     });
   }
 
   if (getLayerVisible(map, "routes-preview-line")) {
     items.push({
-      swatch: '<span class="w-3 h-1 bg-[#165570] rounded-full"></span>',
+      swatch: `<span class="w-3 h-1 rounded-full" style="background:${PREVIEW_ROUTE_COLOR}"></span>`,
       label: "GeoJSON preview"
     });
   }
 
   if (state.selectedFeature) {
     items.push({
-      swatch: '<span class="w-3 h-1 bg-[#f59e0b] rounded-full"></span>',
+      swatch: `<span class="w-3 h-1 rounded-full" style="background:${SELECTED_ROUTE_COLOR}"></span>`,
       label: "Selected route"
     });
   }
@@ -405,6 +587,22 @@ const toggleActionButtons = (enabled) => {
   }
 };
 
+const setAdvancedOpen = (open) => {
+  if (!elements.advancedToggle || !elements.advancedPanel) {
+    return;
+  }
+  elements.advancedToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  elements.advancedPanel.classList.toggle("hidden", !open);
+  if (elements.advancedToggleIcon) {
+    elements.advancedToggleIcon.textContent = open ? "expand_less" : "expand_more";
+  }
+  try {
+    localStorage.setItem("advancedOpen", open ? "1" : "0");
+  } catch (error) {
+    // ignore
+  }
+};
+
 const formatCount = (value) => {
   if (value === null || value === undefined) {
     return "";
@@ -535,6 +733,16 @@ const getServiceSearchValue = () => {
   return String(value).trim();
 };
 
+const uniqueStrings = (items) => Array.from(new Set((items || []).map((v) => String(v)).filter(Boolean)));
+
+const coalesceGet = (keys, fallback = "") => {
+  const parts = (keys || []).map((key) => ["get", key]);
+  return ["coalesce", ...parts, fallback];
+};
+
+const mapCandidateKeys = (preferred, candidates) =>
+  uniqueStrings([preferred, ...(candidates || [])].filter(Boolean));
+
 const getSelectedServiceId = () => {
   if (!state.selectedFeature) {
     return null;
@@ -593,6 +801,71 @@ const hashString = (value) => {
     hash |= 0;
   }
   return Math.abs(hash);
+};
+
+const rgbaToHex = (rgba) => {
+  const [r, g, b] = rgba || [0, 0, 0];
+  const toHex = (n) => {
+    const v = Math.max(0, Math.min(255, Number(n) || 0));
+    return v.toString(16).padStart(2, "0");
+  };
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+const buildOperatorColorExpression = () => {
+  const map = state.map;
+  if (!map || !map.getLayer("routes-line")) {
+    return null;
+  }
+  const operators = state.metadata?.operators || [];
+  if (!Array.isArray(operators) || !operators.length) {
+    return null;
+  }
+
+  const operatorKeys = mapCandidateKeys(state.tileFields.operatorCode, [
+    "operatorCode",
+    "operator_code",
+    "operatorName",
+    "operator_name",
+    "operator"
+  ]);
+  const valueExpr = coalesceGet(operatorKeys, "Unknown");
+  const match = ["match", valueExpr];
+
+  operators.forEach((op) => {
+    const code = typeof op === "string" ? op : op.code;
+    const name = typeof op === "string" ? op : op.name;
+    const base = code || name;
+    if (!base) return;
+    const color = rgbaToHex(getOperatorColor(base));
+    if (code) {
+      match.push(code, color);
+    }
+    if (name && name !== code) {
+      match.push(name, color);
+    }
+  });
+
+  match.push(DEFAULT_ROUTE_COLOR);
+  return match;
+};
+
+const applyRouteColorMode = () => {
+  const map = state.map;
+  if (!map || !map.getLayer("routes-line")) {
+    return;
+  }
+  if (state.colorByOperator) {
+    const expr = buildOperatorColorExpression();
+    if (expr) {
+      map.setPaintProperty("routes-line", "line-color", expr);
+    } else {
+      map.setPaintProperty("routes-line", "line-color", DEFAULT_ROUTE_COLOR);
+    }
+  } else {
+    map.setPaintProperty("routes-line", "line-color", DEFAULT_ROUTE_COLOR);
+  }
+  renderLegend();
 };
 
 const getOperatorValue = (props) => {
@@ -865,7 +1138,7 @@ const initMap = (config) => {
     zoom: config.defaultView?.zoom || 6.2
   });
 
-  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  // We render custom zoom buttons in the UI; avoid duplicate MapLibre controls.
 
   map.on("error", (event) => {
     const message = event?.error?.message;
@@ -886,6 +1159,26 @@ const initMap = (config) => {
   map.on("dragstart", markUserMoved);
   map.on("zoomstart", markUserMoved);
   map.on("rotatestart", markUserMoved);
+
+  let viewportRefreshTimer = null;
+  const maybeRefreshViewportScope = () => {
+    if (!state.conn) {
+      return;
+    }
+    if (!elements.bboxFilter?.checked) {
+      return;
+    }
+    if (!getFeatureFlag(state.config, "viewportAutoRefresh", true)) {
+      return;
+    }
+    if (viewportRefreshTimer) {
+      window.clearTimeout(viewportRefreshTimer);
+    }
+    viewportRefreshTimer = window.setTimeout(() => {
+      viewportRefreshTimer = null;
+      onApplyFilters();
+    }, 350);
+  };
 
   let overlay = null;
   loadDeck()
@@ -1081,6 +1374,20 @@ const initMap = (config) => {
       renderTable();
     });
 
+    map.on("mouseenter", "routes-line", () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", "routes-line", () => {
+      map.getCanvas().style.cursor = "";
+    });
+
+    map.on("click", (event) => {
+      const features = map.queryRenderedFeatures(event.point, { layers: ["routes-line", "routes-preview-line"] });
+      if (!features.length) {
+        clearSelection();
+      }
+    });
+
     // Try to infer tile field names from rendered features for reliable filters.
     const tryDetect = () => {
       detectTileFieldsFromRendered();
@@ -1099,6 +1406,7 @@ const initMap = (config) => {
       showGeojsonOnMap(pending);
     }
 
+    applyRouteColorMode();
     renderLegend();
     updateZoomButtons();
   });
@@ -1106,6 +1414,7 @@ const initMap = (config) => {
   map.on("zoom", updateZoomButtons);
   map.on("moveend", () => {
     updateEvidence();
+    maybeRefreshViewportScope();
   });
   map.on("idle", renderLegend);
   state.map = map;
@@ -1487,35 +1796,41 @@ const buildWhere = () => {
 const buildMapFilter = () => {
   const expressions = ["all"];
 
-  const modeKey = state.tileFields.mode;
-  const operatorCodeKey = state.tileFields.operatorCode;
-  const operatorNameKey = state.tileFields.operatorName;
-  const serviceIdKey = state.tileFields.serviceId;
-  const serviceNameKey = state.tileFields.serviceName;
+  const modeKeys = mapCandidateKeys(state.tileFields.mode, ["mode", "serviceMode", "service_mode"]);
+  const operatorKeys = mapCandidateKeys(state.tileFields.operatorCode, [
+    "operatorCode",
+    "operator_code",
+    "operatorName",
+    "operator_name",
+    "operator"
+  ]);
+  const serviceIdKeys = mapCandidateKeys(state.tileFields.serviceId, ["serviceId", "service_id", "id", "routeId"]);
+  const serviceNameKeys = mapCandidateKeys(state.tileFields.serviceName, ["serviceName", "service_name", "name"]);
 
   const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
-  if (modes.length && modeKey) {
-    expressions.push(["match", ["get", modeKey], modes, true, false]);
+  if (modes.length && modeKeys.length) {
+    const value = coalesceGet(modeKeys, "");
+    expressions.push(["match", value, modes, true, false]);
   }
 
   const operators = getSelectedOperators()
     .map((item) => item.value)
     .filter((value) => value && value !== NONE_OPTION_VALUE);
   if (operators.length) {
-    const operatorKey = operatorCodeKey || operatorNameKey;
-    if (operatorKey) {
-      expressions.push(["match", ["get", operatorKey], operators, true, false]);
+    if (operatorKeys.length) {
+      const value = coalesceGet(operatorKeys, "");
+      expressions.push(["match", value, operators, true, false]);
     }
   }
 
   const search = getServiceSearchValue().toLowerCase();
   if (search) {
     const clauses = [];
-    if (serviceNameKey) {
-      clauses.push(["in", search, ["downcase", ["to-string", ["coalesce", ["get", serviceNameKey], ""]]]]);
+    if (serviceNameKeys.length) {
+      clauses.push(["in", search, ["downcase", ["to-string", coalesceGet(serviceNameKeys, "")]]]);
     }
-    if (serviceIdKey) {
-      clauses.push(["in", search, ["downcase", ["to-string", ["coalesce", ["get", serviceIdKey], ""]]]]);
+    if (serviceIdKeys.length) {
+      clauses.push(["in", search, ["downcase", ["to-string", coalesceGet(serviceIdKeys, "")]]]);
     }
     if (clauses.length === 1) {
       expressions.push(clauses[0]);
@@ -1534,6 +1849,7 @@ const applyMapFilters = () => {
   }
   const filter = buildMapFilter();
   map.setFilter(state.baseLayerId, filter);
+  syncSelectedLayer();
 };
 
 const syncSelectedLayer = () => {
@@ -1548,7 +1864,10 @@ const syncSelectedLayer = () => {
     map.setFilter(state.selectedLayerId, ["==", ["get", "__never__"], "__never__"]);
     return;
   }
-  map.setFilter(state.selectedLayerId, ["==", ["to-string", ["get", serviceIdKey]], String(serviceId)]);
+
+  const baseFilter = map.getFilter(state.baseLayerId);
+  const selectedFilter = ["==", ["to-string", ["get", serviceIdKey]], String(serviceId)];
+  map.setFilter(state.selectedLayerId, baseFilter ? ["all", baseFilter, selectedFilter] : selectedFilter);
 };
 
 const queryCount = async () => {
@@ -1811,6 +2130,18 @@ const renderTable = () => {
   elements.dataTableEmpty.style.display = rows.length ? "none" : "flex";
 
   const selectedServiceId = getSelectedServiceId();
+  if (elements.tableMeta) {
+    const total = state.lastQuery?.count ?? null;
+    if (!rows.length) {
+      elements.tableMeta.textContent = "No rows.";
+    } else if (total !== null && total !== undefined && total > rows.length) {
+      elements.tableMeta.textContent = `Showing ${formatCount(rows.length)} of ${formatCount(total)} (table capped at ${formatCount(
+        state.tableLimit
+      )}).`;
+    } else {
+      elements.tableMeta.textContent = `${formatCount(rows.length)} rows.`;
+    }
+  }
 
   rows.forEach((row) => {
     const tr = document.createElement("tr");
@@ -2036,9 +2367,18 @@ const updateEvidence = () => {
   const hint = hasFilters ? "Filtered view" : "Full dataset";
 
   elements.evidenceLeft.innerHTML = "";
+  const selectionCount = state.lastQuery?.count ?? null;
+  const limitNote =
+    selectionCount !== null && selectionCount !== undefined && selectionCount > state.tableLimit
+      ? `Table shows first ${formatCount(state.tableLimit)}`
+      : null;
   const leftParts = [
     `Scope: <strong class="font-semibold">${hint}</strong>`,
     total ? `Dataset rows: <strong class="font-semibold">${formatCount(total)}</strong>` : null,
+    selectionCount !== null && selectionCount !== undefined
+      ? `Selection: <strong class="font-semibold">${formatCount(selectionCount)}</strong>`
+      : null,
+    limitNote ? `Limit: <strong class="font-semibold">${limitNote}</strong>` : null,
     `Updated: <strong class="font-semibold">${generatedAt}</strong>`
   ].filter(Boolean);
   elements.evidenceLeft.innerHTML = leftParts.map((p) => `<span>${p}</span>`).join("");
@@ -2550,6 +2890,21 @@ const init = async () => {
 
     applyUiConfig(state.config);
     initMap(state.config);
+
+    if (elements.advancedToggle) {
+      let initial = false;
+      try {
+        initial = localStorage.getItem("advancedOpen") === "1";
+      } catch (error) {
+        initial = false;
+      }
+      setAdvancedOpen(initial);
+      elements.advancedToggle.addEventListener("click", () => {
+        const expanded = elements.advancedToggle.getAttribute("aria-expanded") === "true";
+        setAdvancedOpen(!expanded);
+      });
+    }
+
     if (elements.zoomIn) {
       elements.zoomIn.addEventListener("click", () => {
         if (state.map) state.map.zoomIn({ duration: 200 });
@@ -2558,6 +2913,36 @@ const init = async () => {
     if (elements.zoomOut) {
       elements.zoomOut.addEventListener("click", () => {
         if (state.map) state.map.zoomOut({ duration: 200 });
+      });
+    }
+    if (elements.dataInspectorFilter) {
+      elements.dataInspectorFilter.addEventListener("click", () => {
+        if (!elements.sidebar) {
+          return;
+        }
+        const hidden = elements.sidebar.style.display === "none";
+        elements.sidebar.style.display = hidden ? "" : "none";
+        if (state.map) {
+          state.map.resize();
+        }
+        setStatus(hidden ? "Filters panel shown." : "Filters panel hidden.");
+      });
+    }
+    if (elements.dataInspectorExpand) {
+      elements.dataInspectorExpand.addEventListener("click", () => {
+        if (!elements.dataInspector) {
+          return;
+        }
+        const expanded = elements.dataInspector.dataset.expanded === "true";
+        elements.dataInspector.dataset.expanded = expanded ? "false" : "true";
+        elements.dataInspector.style.height = expanded ? "" : "70vh";
+        const icon = elements.dataInspectorExpand.querySelector(".material-symbols-outlined");
+        if (icon) {
+          icon.textContent = expanded ? "open_in_full" : "close_fullscreen";
+        }
+        if (state.map) {
+          state.map.resize();
+        }
       });
     }
     initTabs();
@@ -2627,15 +3012,177 @@ const init = async () => {
       elements.exportCsvTable.addEventListener("click", onDownloadCsv);
     }
     if (elements.serviceSearch) {
+      let timer = null;
       elements.serviceSearch.addEventListener("keydown", (event) => {
+        if (handleDropdownKeyNav(event, elements.serviceSearch, elements.serviceSearchResults)) {
+          return;
+        }
         if (event.key === "Enter") {
+          if (timer) window.clearTimeout(timer);
           onApplyFilters();
+          hideDropdown(elements.serviceSearchResults);
+        }
+      });
+      elements.serviceSearch.addEventListener("input", () => {
+        if (timer) window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          timer = null;
+          onApplyFilters();
+        }, 350);
+        // Also update suggestions as the user types.
+        const value = getServiceSearchValue();
+        if (value && state.conn) {
+          queryServiceSuggestions(value).then((rows) => {
+            const items = rows.map((row) => ({
+              value: row.serviceId || row.serviceName,
+              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
+<div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
+            }));
+            renderDropdownItems(elements.serviceSearchResults, items, (item) => {
+              elements.serviceSearch.value = item.value;
+              hideDropdown(elements.serviceSearchResults);
+              onApplyFilters();
+            });
+            setDropdownActive(elements.serviceSearchResults, 0);
+          });
+        } else {
+          hideDropdown(elements.serviceSearchResults);
+        }
+      });
+      elements.serviceSearch.addEventListener("focus", () => {
+        const value = getServiceSearchValue();
+        if (value && state.conn) {
+          queryServiceSuggestions(value).then((rows) => {
+            const items = rows.map((row) => ({
+              value: row.serviceId || row.serviceName,
+              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
+<div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
+            }));
+            renderDropdownItems(elements.serviceSearchResults, items, (item) => {
+              elements.serviceSearch.value = item.value;
+              hideDropdown(elements.serviceSearchResults);
+              onApplyFilters();
+            });
+            setDropdownActive(elements.serviceSearchResults, 0);
+          });
+        }
+      });
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target) return;
+        const inSearch =
+          target === elements.serviceSearch ||
+          target === elements.serviceSearchResults ||
+          elements.serviceSearchResults?.contains?.(target);
+        if (!inSearch) {
+          hideDropdown(elements.serviceSearchResults);
+        }
+      });
+    }
+    if (elements.bboxFilter) {
+      elements.bboxFilter.addEventListener("change", () => onApplyFilters());
+    }
+
+    // Place search (feature-flagged geocoder).
+    if (getFeatureFlag(state.config, "geocoder", false) && elements.placeSearch && elements.placeSearchResults) {
+      let timer = null;
+      const marker = new maplibregl.Marker({ color: "#2563eb" });
+      const geocoder = state.config.geocoder || {};
+      const endpoint = geocoder.endpoint || "https://nominatim.openstreetmap.org/search";
+      const countryCodes = geocoder.countryCodes || "gb";
+      const limit = Math.max(1, Math.min(Number(geocoder.limit ?? 6), 10));
+
+      const runGeocode = async () => {
+        const q = String(elements.placeSearch.value || "").trim();
+        if (q.length < 3) {
+          hideDropdown(elements.placeSearchResults);
+          return;
+        }
+        const url = new URL(endpoint);
+        url.searchParams.set("format", "jsonv2");
+        url.searchParams.set("q", q);
+        url.searchParams.set("limit", String(limit));
+        url.searchParams.set("countrycodes", countryCodes);
+        url.searchParams.set("addressdetails", "1");
+
+        const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+        if (!response.ok) {
+          throw new Error(`Geocoder failed (${response.status})`);
+        }
+        const results = await response.json();
+        const items = (results || []).map((r) => {
+          const name = r.display_name || r.name || "";
+          const lat = Number(r.lat);
+          const lon = Number(r.lon);
+          const bbox = Array.isArray(r.boundingbox) ? r.boundingbox.map(Number) : null;
+          return {
+            name,
+            lat,
+            lon,
+            bbox,
+            html: `<div class="font-semibold text-text-main">${escapeHtml(name)}</div>
+<div class="text-[11px] text-text-secondary">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>`
+          };
+        });
+
+        renderDropdownItems(elements.placeSearchResults, items, (item) => {
+          hideDropdown(elements.placeSearchResults);
+          if (state.map) {
+            if (item.bbox && item.bbox.length === 4) {
+              // nominatim boundingbox: [south, north, west, east]
+              const [south, north, west, east] = item.bbox;
+              state.map.fitBounds(
+                [
+                  [west, south],
+                  [east, north]
+                ],
+                { padding: 50, duration: 500 }
+              );
+            } else {
+              state.map.flyTo({ center: [item.lon, item.lat], zoom: 12.5, duration: 500 });
+            }
+            marker.setLngLat([item.lon, item.lat]).addTo(state.map);
+            updateEvidence();
+          }
+        });
+        setDropdownActive(elements.placeSearchResults, 0);
+      };
+
+      elements.placeSearch.addEventListener("input", () => {
+        if (timer) window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          timer = null;
+          runGeocode().catch((error) => setStatus(error.message));
+        }, 350);
+      });
+      elements.placeSearch.addEventListener("keydown", (event) => {
+        if (handleDropdownKeyNav(event, elements.placeSearch, elements.placeSearchResults)) {
+          return;
+        }
+        if (event.key === "Enter") {
+          if (timer) window.clearTimeout(timer);
+          runGeocode().catch((error) => setStatus(error.message));
+        }
+        if (event.key === "Escape") {
+          hideDropdown(elements.placeSearchResults);
+        }
+      });
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target) return;
+        const inSearch =
+          target === elements.placeSearch ||
+          target === elements.placeSearchResults ||
+          elements.placeSearchResults?.contains?.(target);
+        if (!inSearch) {
+          hideDropdown(elements.placeSearchResults);
         }
       });
     }
     if (elements.colorByOperator) {
       elements.colorByOperator.addEventListener("change", () => {
         state.colorByOperator = Boolean(elements.colorByOperator.checked);
+        applyRouteColorMode();
         if (state.lastPreviewGeojson) {
           updateOverlay(state.lastPreviewGeojson);
         }

@@ -16,6 +16,9 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - No build pipeline or CI is present; runtime depends on CDN-hosted ES modules (MapLibre, PMTiles, DuckDB-WASM) and a direct R2 public bucket configured in `public/config.json`.
 - `README.md` references a `frontend/` path and `tools/` scripts that are not in this repo (likely from an earlier structure), so quick-start and build steps are currently stale.
 - `BASELINE.md` exists and documents the current runtime + dataset; it should be treated as the initial baseline doc alongside this plan.
+- Phase 1 data artefacts audit: `public/` includes `routes.pmtiles`, `routes.parquet`, and `metadata.json` (generated 2025-12-23), but no `boundaries_la.pmtiles`, `boundaries_rpt.pmtiles`, or `operators.parquet` are present. No local pipeline tooling or boundary source files exist in-repo, and `duckdb`/`pyarrow` are not installed for parquet schema inspection.
+- Phase 1 progress: generated `public/boundaries_la.pmtiles` and `public/boundaries_rpt.pmtiles` from Spatial Hub LA WFS (layer `sh_las:pub_las`) by dissolving LA polygons into RPT regions. RPT boundaries assume full `Argyll and Bute` belongs to HITRANS (cannot split Helensburgh + Lomond without a sub-LA boundary); this limitation should be disclosed in Evidence and/or refined later.
+- Phase 1 progress: regenerated `public/routes.parquet` and `public/routes.pmtiles` with `la_code/la_name` and `rpt_code/rpt_name` attributes computed via max-intersection-length against LA polygons; also generated `public/operators.parquet` (distinct operator codes/names). Routes that failed the intersection (e.g., ferry services like `SF8 Shetland - Foula` / `CM20 Castlebay - Oban`) now fall back to nearest-LA assignment.
 
 
 ## Architecture overview
@@ -378,6 +381,19 @@ Once those two are working, you’ll have a genuinely usable planner tool.
 - **Task 4 (Phase 2/4)**: Once ready to build, expand this plan with explicit subtasks (component breakdown, state flows, styling tokens, accessibility/keyboard focus) and call out which roadmap risks (filtering accuracy, table exports, time-band honesty) each subtask addresses.
 - **Status update**: Rebuilt the runtime HTML/CSS to match the mockup layout, imported the Tailwind palette/fonts, and kept the original DOM IDs (dataset metadata, filters, previews, exports, selection) so `public/app.js` can keep running; next work is to ensure the script handles any new overlay quirks and to hook the inspector/table interactions into the mockup panels.
 
+### Gap analysis vs Phase 2 spec (current blockers)
+- **Clip by LA/RPT** (MV-010/011/012/014): need LA + RPT pickers, active boundary outline, and clip-name display tied to the viewer. Current “Limit to map viewport” is insufficient; add explicit clip controls that set MapLibre filters on `la_code`/`rpt_code`.
+- **Map ↔ table selection** (MV-040-043): route click should highlight/stroke the line, select the matching row(s), and open the inspector with IDs/links (Traveline/PDF). DuckDB-backed table must mirror map highlight state.
+- **Evidence panel** (MV-070/071): data panel must not only show totals but list active filters, clip name, definitions version, and data source/version, plus offer a copyable snippet summarizing scope.
+- **Time band filter** (MV-022/023): add explicit day-type controls (Weekday/Sat/Sun) or disable the filter with a “coming soon” note until schedule flags exist; ensure UI copies Phase 2 definitions.
+- **Save map state** (MV-062): clarify whether Share/snapshot buttons store filter+extent+layer state (localStorage for v1), otherwise add a new widget that persists/restores these params.
+
+### UX polish (Phase 2 refinements)
+- “Apply filters” should display pending filter count, disable when no change, and consider auto-apply for only-local filters.
+- Add a scope summary chip row above the map reflecting clip/filter state (scope, mode, operator, search) to keep exports/evidence readable.
+- Resolve terminology: keep either a single “Limit to map viewport” toggle or a chip so the UI isn’t redundant.
+- Table enhancements: column picker starter, hover copy for service_id, and sticky inspector actions once the selection loop exists.
+
 ## Recent review (2025-12-25)
 - The runtime lives entirely in `public/`: `index.html` wires up `styles.css`, `app.js` loads MapLibre + PMTiles + DuckDB-WASM from CDNs, and `metadata.json` reports 2,577 routes (generated at 2025-12-23T18:59:05Z) served from the R2 bucket referenced by `config.json`.
 - `public/app.js` already implements filtering, bounding-box clipping, deck.gl overlays, CSV/GeoJSON exports, and sample preview behaviour, but no bundler, tests, or build pipeline drives it beyond the static files in `public/`.
@@ -403,7 +419,10 @@ Not done (still Phase 2 scope)
 - “Evidence built-in” needs tightening (explicitly disclose row caps + filtering limitations consistently).
 
 ### Known bugs (log)
-- **Selected highlight persists across filter changes**: if a route is selected (orange highlight) and the user changes filters so that route is out-of-scope, the orange highlight can remain visible. Expected: clear selection or constrain selected highlight to the active filter/map scope.
+- **Selected highlight persists across filter changes**: if a route is selected (orange highlight) and the user changes filters so that route is out-of-scope, the orange highlight can remain visible. Expected: clear selection or constrain selected highlight to the active filter/map scope. **Status:** fixed in runtime (selected layer now includes base filter).
+- **Service search (name/ID) not filtering results**: search box should filter both map and table by `serviceName` / `serviceId`. **Status:** fixed in runtime (MapLibre filter now uses robust candidate fields; input applies on typing + Enter).
+- **Limit to map viewport not applied to table/stats on pan/zoom**: when enabled, the selection should update as the viewport changes. **Status:** fixed in runtime for table/stats (auto-refresh on map move when enabled and DuckDB is available); still not reflected as a distinct “map filter” because the viewport is the map.
+- **Color routes by operator not applied to MapLibre layer**: toggling “Color routes by operator” only affects the Deck.gl preview overlay (when present) and does not recolor the main MapLibre-rendered routes layer. **Status:** fixed in runtime (MapLibre `line-color` now uses a generated match palette from `metadata.operators`).
 
 ### UI functional backlog (Phase 2 focus)
 Goal: make the existing `public/` UI “real” (filters → map → table → inspector → exports) without introducing a bundler yet.

@@ -3,6 +3,12 @@
   "pmtilesFile": "routes.pmtiles",
   "parquetFile": "routes.parquet",
   "metadataFile": "metadata.json",
+  "boundariesLaPmtiles": "boundaries_la.pmtiles",
+  "boundariesRptPmtiles": "boundaries_rpt.pmtiles",
+  "boundariesLaLayer": "boundaries_la",
+  "boundariesRptLayer": "boundaries_rpt",
+  "boundariesLaCodeField": "code",
+  "boundariesRptCodeField": "rpt_code",
   "geojsonFile": "/data/scotland-routes.geojson",
   "geojsonPreviewLimit": 500,
   "apiDocsUrl": "",
@@ -16,6 +22,8 @@
   "features": {
     "autoFitScope": true,
     "autoFitBounds": true,
+    "viewportAutoRefresh": true,
+    "userMenu": false,
     "share": false,
     "snapshot": false,
     "insightsTab": false,
@@ -24,6 +32,12 @@
     "layerToggles": false,
     "exportGeojson": false,
     "exportCsv": true,
-    "geojsonPreview": true
+    "geojsonPreview": true,
+    "geocoder": false
+  },
+  "geocoder": {
+    "endpoint": "https://nominatim.openstreetmap.org/search",
+    "countryCodes": "gb",
+    "limit": 6
   }
 }

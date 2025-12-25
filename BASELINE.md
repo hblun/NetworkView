@@ -6,9 +6,9 @@
 - User interactions include mode/operator/bbox filtering, Deck-highlighted preview updates, selection cards, and dataset stats. Sample preview geoJSON is embedded for offline testing from `sampleGeojson()`.
 
 ## Data assets
-- The current dataset lives in `public/` as `routes.pmtiles` (4.6 MB), `routes.parquet` (44.6 MB), and `metadata.json`. Metadata claims 2,577 routes, list of supported modes (`BUS`, `COACH`, `FERRY`, `RAIL`), and the same operators used to populate the filter selects.
-- Tokens such as `metadata.generatedAt` (2025-12-23T18:59:05.120328+00:00) and `metadata.lastUpdated` (2025-12-23T18:42:02.485433+00:00) document when the artefacts were created.
-- Config-driven endpoints point to `https://pub-68f801c9ef774a729dd19c234b46593b.r2.dev` and expect `routes.pmtiles`, `routes.parquet`, and `metadata.json` in that bucket.
+- The current dataset lives in `public/` as `routes.pmtiles` (8.1 MB), `routes.parquet` (50 MB), `boundaries_la.pmtiles` (2.3 MB), `boundaries_rpt.pmtiles` (1.3 MB), and `metadata.json`. Metadata reports 2,784 routes, supported modes (`BUS`, `COACH`, `FERRY`), and the operators used to populate the filter selects.
+- Tokens such as `metadata.generatedAt` and `metadata.lastUpdated` are now both `2025-12-25T15:33:08.971721+00:00`, reflecting the latest artefact refresh.
+- Config-driven endpoints point to `https://pub-68f801c9ef774a729dd19c234b46593b.r2.dev` and expect `routes.pmtiles`, `routes.parquet`, `metadata.json`, plus boundary PMTiles when clipping is enabled.
 
 ## Configuration
 - `public/config.json` defines the live URLs (`dataBaseUrl`, `vectorLayer`, `duckdbBaseUrl`, `basemapStyle`) as well as the default view (center, zoom). `config.sample.json` mirrors these fields but is meant for local sample previews (it leaves `pmtilesFile` blank so the map shows basemap only until actual tiles are downloaded).
@@ -25,6 +25,7 @@
 - No bundler / build pipeline / tests exist; the only verification is manual interaction via the sample UI.
 - There is no automated way to refresh `routes.parquet` or ensure `metadata.json` aligns with the tiles, so updates should follow the README’s `tools/build_frontend_data.sh` script paired with manual metadata inspection.
 - Time-band filtering relies on available flags in the Parquet dataset; the UI currently enables the bbox filter (with spatial extension) and falls back to a geojson/bbox column combo if spatial support is missing.
+- LA/RPT assignments are derived from polygon intersection with a nearest-LA fallback for routes that do not intersect land polygons (notably ferry services). Argyll & Bute is treated as fully HITRANS until a sub-LA boundary for Helensburgh + Lomond is supplied.
 
 ## Follow-up priorities
 - If the dataset changes, confirm that `metadata.generatedAt`/`lastUpdated` update, the R2 bucket has `"metadata.json"`, and `config.json` still points at that bucket.
