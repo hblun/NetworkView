@@ -2,6 +2,27 @@ import maplibregl from "https://esm.sh/maplibre-gl@3.6.2";
 import { Protocol } from "https://cdn.jsdelivr.net/npm/pmtiles@3.0.6/+esm";
 import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm";
 
+// Module imports - Phase 3 Integration
+// Constants
+import { COLORS, LAYER_IDS, ROUTE_LINE_WIDTH, SELECTED_LINE_WIDTH, NONE_OPTION_VALUE, TIME_BAND_OPTIONS, FIELD_CANDIDATES, TABLE_CONFIG, EXPORT_LIMITS } from "./js/config/constants.js";
+
+// State management
+import { state, setConfig, setMap, setDuckDBConnection, setSpatialReady, setSelectedFeature, clearSelectedFeature, setTableRows, setColumns } from "./js/state/manager.js";
+
+// Utilities
+import { escapeSql, quoteIdentifier, buildInClause, escapeLikePattern } from "./js/utils/sql.js";
+import { generateColor, rgbaToHex, hslToRgb, hashString } from "./js/utils/colors.js";
+import { clearElement, escapeHtml, getProp, getSelectedValues, getSelectedValue, formatCount, toNumber } from "./js/utils/dom.js";
+import { joinUrl, toAbsoluteUrl, addCacheBuster } from "./js/utils/url.js";
+import { getGeometryCoordinates, getFeaturesBbox, isValidBbox } from "./js/utils/geometry.js";
+
+// Domain modules
+import { initDuckDb, executeQuery, countRows, detectSchemaFields } from "./js/duckdb/client.js";
+import { buildWhere, buildBboxFilter, buildCombinedWhere, hasAttributeFilters, getSelectedOperators, getSelectedTimeBands, getServiceSearchValue } from "./js/filters/builder.js";
+import { fitMapToBbox, fitMapToScope, buildMapFilter, detectTileFieldsFromRendered } from "./js/map/utils.js";
+import { renderTable, renderTableHead, getTableColumns, fetchTablePage, ensureTablePageFor, queryTable } from "./js/table/renderer.js";
+import { queryCsv, queryGeoJson, downloadFile, confirmLargeExport, onDownloadCsv, onDownloadGeojson } from "./js/exports/handlers.js";
+
 const elements = {
   datasetDate: document.getElementById("dataset-date"),
   datasetCount: document.getElementById("dataset-count"),
@@ -54,142 +75,17 @@ const elements = {
   placeSearchResults: document.getElementById("place-search-results")
 };
 
-const NONE_OPTION_VALUE = "__NONE__";
+// NONE_OPTION_VALUE, state, constants, and utilities now imported from modules
 
-const state = {
-  config: null,
-  metadata: null,
-  map: null,
-  overlay: null,
-  deck: null,
-  db: null,
-  conn: null,
-  spatialReady: false,
-  duckdbReady: false,
-  geometryField: "geometry",
-  geojsonField: "",
-  bboxFields: null,
-  bboxReady: false,
-  pendingGeojson: null,
-  baseLayerId: "routes-line",
-  selectedLayerId: "routes-selected",
-  baseLayerPaint: { opacity: 0.65, width: 1.2 },
-  baseLayerFiltered: false,
-  overlayVersion: 0,
-  colorByOperator: false,
-  operatorColorMap: new Map(),
-  selectedFeatureKey: null,
-  selectedFeature: null,
-  lastPreviewGeojson: null,
-  columns: [],
-  modeField: "mode",
-  operatorFields: ["operatorCode", "operatorName", "operator"],
-  timeBandFields: {},
-  tileTimeBandFields: {},
-  laField: "",
-  laNameField: "",
-  laCodesField: "",
-  laNamesField: "",
-  rptField: "",
-  rptNameField: "",
-  rptCodesField: "",
-  rptNamesField: "",
-  lastQuery: null,
-  applyingFilters: false,
-  pendingFilterApply: false,
-  lastMapFilterWarningKey: "",
-  tileFields: {
-    serviceId: "",
-    serviceName: "",
-    mode: "",
-    operatorCode: "",
-    operatorName: "",
-    laCode: "",
-    laCodes: "",
-    rptCode: "",
-    rptCodes: ""
-  },
-  tableRows: [],
-  tableLimit: 250,
-  tableVirtual: {
-    rowHeight: 34,
-    overscan: 8,
-    start: 0,
-    end: 0,
-    lastMeasuredAt: 0
-  },
-  tableEventsBound: false,
-  tablePaging: {
-    enabled: true,
-    pageSize: 500,
-    browseMax: 10000,
-    offset: 0,
-    rows: [],
-    loading: false,
-    queryKey: ""
-  },
-  pendingPreviewGeojson: null,
-  boundaryLayers: {
-    la: null,
-    rpt: null
-  }
-};
+// Duplicate constants removed - now imported from ./js/config/constants.js:
+// - ROUTE_LINE_WIDTH, SELECTED_LINE_WIDTH, TIME_BAND_OPTIONS
+// - DEFAULT_ROUTE_COLOR, PREVIEW_ROUTE_COLOR, SELECTED_ROUTE_COLOR
 
-// Expose limited debug handle for console troubleshooting.
-if (typeof window !== "undefined") {
-  window.__NV_STATE = state;
-}
+// Duplicate SQL utils removed - now imported from ./js/utils/sql.js:
+// - escapeSql, quoteIdentifier, buildInClause
 
-const ROUTE_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 0.9, 8, 1.3, 11, 2.2, 14, 3.6];
-const SELECTED_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 2.2, 8, 3.0, 11, 4.4, 14, 6.2];
-const DEFAULT_ROUTE_COLOR = "#d6603b";
-const PREVIEW_ROUTE_COLOR = "#165570";
-const SELECTED_ROUTE_COLOR = "#f59e0b";
-const TIME_BAND_OPTIONS = [
-  { key: "weekday", label: "Weekday", candidates: ["runs_weekday", "runsWeekday", "runs_weekday_flag"] },
-  { key: "saturday", label: "Saturday", candidates: ["runs_saturday", "runsSaturday", "runs_sat", "runsSat"] },
-  { key: "sunday", label: "Sunday", candidates: ["runs_sunday", "runsSunday", "runs_sun", "runsSun"] },
-  { key: "evening", label: "Evening", candidates: ["runs_evening", "runsEvening"] },
-  { key: "night", label: "Night", candidates: ["runs_night", "runsNight"] }
-];
-
-const escapeSql = (value) => String(value).replace(/'/g, "''");
-const quoteIdentifier = (value) => `"${String(value).replace(/"/g, '""')}"`;
-
-const joinUrl = (base, path) => {
-  if (!base) {
-    return path;
-  }
-  if (typeof path === "string" && (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("/"))) {
-    return path;
-  }
-  return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
-};
-
-const toAbsoluteUrl = (value) => {
-  if (!value || typeof window === "undefined") {
-    return value;
-  }
-  try {
-    return new URL(value, window.location.href).toString();
-  } catch (error) {
-    return value;
-  }
-};
-
-const addCacheBuster = (url, version) => {
-  if (!url || !version || typeof window === "undefined") {
-    return url;
-  }
-  try {
-    const resolved = new URL(url, window.location.href);
-    resolved.searchParams.set("v", version);
-    return resolved.toString();
-  } catch (error) {
-    const joiner = url.includes("?") ? "&" : "?";
-    return `${url}${joiner}v=${encodeURIComponent(version)}`;
-  }
-};
+// Duplicate URL utils removed - now imported from ./js/utils/url.js:
+// - joinUrl, toAbsoluteUrl, addCacheBuster
 
 const getTimeBandLabel = (key) => TIME_BAND_OPTIONS.find((option) => option.key === key)?.label || key;
 
@@ -536,13 +432,7 @@ const handleDropdownKeyNav = (event, inputEl, dropdownEl) => {
   return false;
 };
 
-const escapeHtml = (value) =>
-  String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+// escapeHtml removed - now imported from ./js/utils/dom.js
 
 const tokenizeQuery = (value) =>
   String(value || "")
@@ -673,136 +563,13 @@ const updateZoomButtons = () => {
   elements.zoomIn.classList.toggle("opacity-50", elements.zoomIn.disabled);
 };
 
-const fitMapToBbox = (bbox, reason) => {
-  const map = state.map;
-  if (!map || !Array.isArray(bbox) || bbox.length !== 4) {
-    return;
-  }
-  const [minLon, minLat, maxLon, maxLat] = bbox.map(Number);
-  if (![minLon, minLat, maxLon, maxLat].every((n) => Number.isFinite(n))) {
-    return;
-  }
-  try {
-    map.fitBounds(
-      [
-        [minLon, minLat],
-        [maxLon, maxLat]
-      ],
-      { padding: 40, duration: 450 }
-    );
-    const minZoom = Number(state.config?.routesMinZoom ?? 5);
-    if (Number.isFinite(minZoom)) {
-      map.once("moveend", () => {
-        try {
-          if (map.getZoom() < minZoom) {
-            map.setZoom(minZoom);
-          }
-        } catch (zoomError) {
-          // Ignore zoom clamp failures.
-        }
-      });
-    }
-    if (reason) {
-      setStatus(reason);
-    }
-  } catch (error) {
-    // Ignore invalid bounds.
-  }
-};
+// fitMapToBbox removed - now imported from ./js/map/utils.js
 
-const getGeometryCoordinates = (geometry) => {
-  if (!geometry) {
-    return [];
-  }
-  const type = geometry.type;
-  if (type === "LineString") {
-    return geometry.coordinates || [];
-  }
-  if (type === "MultiLineString") {
-    return (geometry.coordinates || []).flat();
-  }
-  if (type === "Point") {
-    return [geometry.coordinates];
-  }
-  if (type === "MultiPoint") {
-    return geometry.coordinates || [];
-  }
-  if (type === "Polygon") {
-    return (geometry.coordinates || []).flat();
-  }
-  if (type === "MultiPolygon") {
-    return (geometry.coordinates || []).flat(2);
-  }
-  return [];
-};
+// Geometry utility functions removed - now imported from ./js/utils/geometry.js:
+// - getGeometryCoordinates, getFeaturesBbox
 
-const getFeaturesBbox = (features) => {
-  let minLon = Infinity;
-  let minLat = Infinity;
-  let maxLon = -Infinity;
-  let maxLat = -Infinity;
-
-  (features || []).forEach((feature) => {
-    const coords = getGeometryCoordinates(feature?.geometry);
-    coords.forEach((pair) => {
-      if (!Array.isArray(pair) || pair.length < 2) {
-        return;
-      }
-      const lon = Number(pair[0]);
-      const lat = Number(pair[1]);
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
-        return;
-      }
-      minLon = Math.min(minLon, lon);
-      minLat = Math.min(minLat, lat);
-      maxLon = Math.max(maxLon, lon);
-      maxLat = Math.max(maxLat, lat);
-    });
-  });
-
-  if (![minLon, minLat, maxLon, maxLat].every((n) => Number.isFinite(n))) {
-    return null;
-  }
-  if (minLon === maxLon && minLat === maxLat) {
-    // Avoid zero-area bounds.
-    const pad = 0.01;
-    return [minLon - pad, minLat - pad, maxLon + pad, maxLat + pad];
-  }
-  return [minLon, minLat, maxLon, maxLat];
-};
-
-const fitMapToScope = (reason) => {
-  const map = state.map;
-  if (!map || !getFeatureFlag(state.config, "autoFitScope", true)) {
-    return;
-  }
-
-  // If bbox-filter is active, the scope is explicitly the viewport; don't override.
-  if (elements.bboxFilter?.checked) {
-    return;
-  }
-
-  // Prefer GeoJSON preview bounds when present (accurate for preview scope).
-  if (state.lastPreviewGeojson?.features?.length) {
-    const bbox = getFeaturesBbox(state.lastPreviewGeojson.features);
-    if (bbox) {
-      fitMapToBbox(bbox, reason || "Fitting to preview scope...");
-      return;
-    }
-  }
-
-  // Best-effort for PMTiles/GeoJSON sources: fit to currently rendered features.
-  // This is viewport-dependent (tiles outside view aren't sampled), but still useful.
-  try {
-    const rendered = map.queryRenderedFeatures(undefined, { layers: ["routes-line"] });
-    const bbox = getFeaturesBbox(rendered);
-    if (bbox) {
-      fitMapToBbox(bbox, reason || "Fitting to scope...");
-    }
-  } catch (error) {
-    // Ignore.
-  }
-};
+// Map utility functions removed - now imported from ./js/map/utils.js:
+// - fitMapToScope (32 lines)
 
 const copyText = async (value) => {
   const text = String(value ?? "");
@@ -866,12 +633,7 @@ const setAdvancedOpen = (open) => {
   }
 };
 
-const formatCount = (value) => {
-  if (value === null || value === undefined) {
-    return "";
-  }
-  return value.toLocaleString();
-};
+// formatCount removed - now imported from ./js/utils/dom.js
 
 const formatBytes = (bytes) => {
   if (bytes < 1024) {
@@ -900,19 +662,7 @@ const EXCLUDED_CSV_COLUMNS = new Set(["geometry", "geom", "geojson"]);
 const getCsvColumns = () =>
   (state.columns || []).filter((column) => !EXCLUDED_CSV_COLUMNS.has(column));
 
-const toNumber = (value) => {
-  if (typeof value === "bigint") {
-    const max = BigInt(Number.MAX_SAFE_INTEGER);
-    if (value > max) {
-      return Number.MAX_SAFE_INTEGER;
-    }
-    if (value < BigInt(-Number.MAX_SAFE_INTEGER)) {
-      return -Number.MAX_SAFE_INTEGER;
-    }
-    return Number(value);
-  }
-  return typeof value === "number" ? value : Number(value);
-};
+// toNumber removed - now imported from ./js/utils/dom.js
 
 const estimateExportBytes = (count, format) => {
   const perRow = format === "geojson" ? 900 : 220;
@@ -944,12 +694,7 @@ const formatDecimal = (value, digits = 2) => {
   return Number(value).toFixed(digits);
 };
 
-const clearElement = (element) => {
-  if (!element) {
-    return;
-  }
-  element.innerHTML = "";
-};
+// clearElement removed - now imported from ./js/utils/dom.js
 
 const setStatsHint = (message) => {
   if (!elements.statsHint) {
@@ -958,26 +703,7 @@ const setStatsHint = (message) => {
   elements.statsHint.textContent = message;
 };
 
-const getProp = (props, name) => {
-  if (!props) {
-    return undefined;
-  }
-  if (Object.prototype.hasOwnProperty.call(props, name)) {
-    return props[name];
-  }
-  const lower = String(name).toLowerCase();
-  const normalized = lower.replace(/[^a-z0-9]/g, "");
-  for (const key of Object.keys(props)) {
-    const keyLower = String(key).toLowerCase();
-    if (keyLower === lower) {
-      return props[key];
-    }
-    if (keyLower.replace(/[^a-z0-9]/g, "") === normalized) {
-      return props[key];
-    }
-  }
-  return undefined;
-};
+// getProp removed - now imported from ./js/utils/dom.js
 
 const getFeatureKey = (feature, fallback = "") => {
   const props = feature?.properties || {};
@@ -991,10 +717,7 @@ const getFeatureKey = (feature, fallback = "") => {
   return fallback;
 };
 
-const getServiceSearchValue = () => {
-  const value = elements.serviceSearch?.value ?? "";
-  return String(value).trim();
-};
+// getServiceSearchValue removed - now imported from ./js/filters/builder.js
 
 const uniqueStrings = (items) => Array.from(new Set((items || []).map((v) => String(v)).filter(Boolean)));
 
@@ -1022,58 +745,8 @@ const getSelectedServiceId = () => {
   return null;
 };
 
-const hslToRgb = (h, s, l) => {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = h / 60;
-  const x = c * (1 - Math.abs((hp % 2) - 1));
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (hp >= 0 && hp < 1) {
-    r = c;
-    g = x;
-  } else if (hp >= 1 && hp < 2) {
-    r = x;
-    g = c;
-  } else if (hp >= 2 && hp < 3) {
-    g = c;
-    b = x;
-  } else if (hp >= 3 && hp < 4) {
-    g = x;
-    b = c;
-  } else if (hp >= 4 && hp < 5) {
-    r = x;
-    b = c;
-  } else if (hp >= 5 && hp < 6) {
-    r = c;
-    b = x;
-  }
-  const m = l - c / 2;
-  return [
-    Math.round((r + m) * 255),
-    Math.round((g + m) * 255),
-    Math.round((b + m) * 255)
-  ];
-};
-
-const hashString = (value) => {
-  let hash = 0;
-  const str = String(value);
-  for (let i = 0; i < str.length; i += 1) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-};
-
-const rgbaToHex = (rgba) => {
-  const [r, g, b] = rgba || [0, 0, 0];
-  const toHex = (n) => {
-    const v = Math.max(0, Math.min(255, Number(n) || 0));
-    return v.toString(16).padStart(2, "0");
-  };
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-};
+// Color utility functions removed - now imported from ./js/utils/colors.js:
+// - hslToRgb, hashString, rgbaToHex
 
 const buildOperatorColorExpression = () => {
   const map = state.map;
@@ -1984,268 +1657,14 @@ const detectTileFieldsFromRendered = () => {
   });
 };
 
-const detectSchemaFields = (columns) => {
-  const columnLookup = new Map(columns.map((name) => [String(name).toLowerCase(), name]));
-  const columnSet = new Set(columnLookup.keys());
-  const findColumn = (candidates) => {
-    for (const candidate of candidates) {
-      const key = candidate.toLowerCase();
-      if (columnSet.has(key)) {
-        return columnLookup.get(key);
-      }
-    }
-    return "";
-  };
-  const modeCandidates = ["mode", "serviceMode"];
-  const operatorCandidates = ["operatorCode", "operatorName", "operator"];
-  const laCodeCandidates = ["la_code", "laCode", "la"];
-  const laNameCandidates = ["la_name", "laName", "local_authority"];
-  const laCodesCandidates = ["la_codes", "laCodes", "la_list"];
-  const laNamesCandidates = ["la_names", "laNames", "local_authorities"];
-  const rptCodeCandidates = ["rpt_code", "rptCode", "rpt"];
-  const rptNameCandidates = ["rpt_name", "rptName"];
-  const rptCodesCandidates = ["rpt_codes", "rptCodes", "rpt_list"];
-  const rptNamesCandidates = ["rpt_names", "rptNames"];
-  const bboxCandidates = {
-    minx: ["bbox_minx", "minx", "xmin", "min_lon", "min_lng"],
-    miny: ["bbox_miny", "miny", "ymin", "min_lat"],
-    maxx: ["bbox_maxx", "maxx", "xmax", "max_lon", "max_lng"],
-    maxy: ["bbox_maxy", "maxy", "ymax", "max_lat"]
-  };
+// DuckDB initialization functions removed - now imported from ./js/duckdb/client.js:
+// - detectSchemaFields (57 lines)
+// - initDuckDb (193 lines)
 
-  state.modeField = findColumn(modeCandidates);
-  state.operatorFields = operatorCandidates.map((name) => findColumn([name])).filter(Boolean);
-  state.laField = findColumn(laCodeCandidates);
-  state.laNameField = findColumn(laNameCandidates);
-  state.laCodesField = findColumn(laCodesCandidates);
-  state.laNamesField = findColumn(laNamesCandidates);
-  state.rptField = findColumn(rptCodeCandidates);
-  state.rptNameField = findColumn(rptNameCandidates);
-  state.rptCodesField = findColumn(rptCodesCandidates);
-  state.rptNamesField = findColumn(rptNamesCandidates);
-  state.timeBandFields = {};
-  TIME_BAND_OPTIONS.forEach((option) => {
-    const field = findColumn(option.candidates);
-    if (field) {
-      state.timeBandFields[option.key] = field;
-    }
-  });
-  state.geojsonField = findColumn(["geojson"]);
-  const bboxFields = {
-    minx: findColumn(bboxCandidates.minx),
-    miny: findColumn(bboxCandidates.miny),
-    maxx: findColumn(bboxCandidates.maxx),
-    maxy: findColumn(bboxCandidates.maxy)
-  };
-  state.bboxFields = bboxFields;
-  state.bboxReady = Boolean(bboxFields.minx && bboxFields.miny && bboxFields.maxx && bboxFields.maxy);
-  refreshTimeBandFilter();
-};
 
-const initDuckDb = async (config) => {
-  setStatus("Initializing DuckDB...");
-  state.duckdbReady = false;
-  const baseUrl = config.duckdbBaseUrl || "";
-  const pickBundle = async (bundles) => {
-    if (config.duckdbBundle && bundles[config.duckdbBundle]) {
-      return bundles[config.duckdbBundle];
-    }
-    if (typeof window !== "undefined" && !window.crossOriginIsolated && bundles.mvp) {
-      return bundles.mvp;
-    }
-    return duckdb.selectBundle(bundles);
-  };
+// getSelectedValues and getSelectedValue removed - now imported from ./js/utils/dom.js
 
-  const rebasedBundles = rebaseBundles(duckdb.getJsDelivrBundles(), baseUrl);
-  let bundle = await pickBundle(rebasedBundles);
-  const createDb = async (selected) => {
-    setStatus("Loading DuckDB worker...");
-    let worker = null;
-    if (config.duckdbWorkerMode !== "blob") {
-      try {
-        worker = new Worker(selected.mainWorker, { type: "module" });
-      } catch (error) {
-        worker = null;
-      }
-    }
-    if (!worker) {
-      worker = await duckdb.createWorker(selected.mainWorker);
-    }
-    const workerError = new Promise((_, reject) => {
-      const onError = (event) => {
-        const message = event?.message || "DuckDB worker failed to start.";
-        reject(new Error(message));
-      };
-      worker.addEventListener("error", onError, { once: true });
-      worker.addEventListener("messageerror", onError, { once: true });
-    });
-    const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger("error"), worker);
-    await withTimeout(
-      Promise.race([
-        db.instantiate(selected.mainModule, selected.pthreadWorker),
-        workerError
-      ]),
-      15000,
-      "DuckDB initialization timed out. Check duckdbBaseUrl assets."
-    );
-    return db;
-  };
-
-  const loadWithFallback = async () => {
-    try {
-      state.db = await createDb(bundle);
-      return;
-    } catch (error) {
-      // If a local duckdbBaseUrl is configured but assets are missing, retry using CDN bundles.
-      if (baseUrl) {
-        setStatus("DuckDB local assets missing; retrying via CDN...");
-        const cdnBundles = duckdb.getJsDelivrBundles();
-        bundle = await pickBundle(cdnBundles);
-        state.db = await createDb(bundle);
-        return;
-      }
-      throw error;
-    }
-  };
-
-  try {
-    await loadWithFallback();
-  } catch (error) {
-    const hint = baseUrl
-      ? `DuckDB worker failed to load from '${baseUrl}'. Add DuckDB assets under public/${baseUrl}/ or set duckdbBaseUrl:'' to use CDN.`
-      : "DuckDB worker failed to load. If running locally, add DuckDB assets under public/duckdb (see README) or set duckdbBaseUrl:''.";
-    throw new Error(`${hint}`);
-  }
-
-  const conn = await state.db.connect();
-  // Note: do not force home/temp directories. Some DuckDB-WASM builds do not have
-  // a '/' directory, and setting it can break initialization.
-  // Avoid setting home/temp directories here; some WASM builds lack a writable FS.
-
-  let spatialReady = false;
-  try {
-    await conn.query("LOAD spatial");
-    spatialReady = true;
-  } catch (loadError) {
-    try {
-      await conn.query("INSTALL spatial");
-      await conn.query("LOAD spatial");
-      spatialReady = true;
-    } catch (error) {
-      spatialReady = false;
-    }
-  }
-
-  const parquetUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.parquetFile));
-  const isLocalHost =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost");
-  const preferBuffer = Boolean(config.parquetPreferBuffer);
-  if (!preferBuffer) {
-    await state.db.registerFileURL("routes.parquet", parquetUrl);
-  }
-
-  const describeParquet = async () => {
-    const result = await conn.query("DESCRIBE SELECT * FROM read_parquet('routes.parquet')");
-    const columns = result.toArray().map((row) => row.column_name || row.name || row[0]);
-    state.columns = columns;
-    detectSchemaFields(columns);
-    const columnLookup = new Map(columns.map((name) => [String(name).toLowerCase(), name]));
-    state.geometryField = columnLookup.get("geometry") || columnLookup.get("geom") || "";
-    return columns;
-  };
-
-  try {
-    if (preferBuffer) {
-      throw new Error("Parquet buffer preferred");
-    }
-    await describeParquet();
-  } catch (error) {
-    const message = String(error?.message || "");
-    const isTooSmall = message.toLowerCase().includes("too small to be a parquet file");
-    if (isTooSmall) {
-      setStatus(`Parquet URL read failed (${parquetUrl}). Downloading full file for local access...`);
-    }
-    const maxBufferMb = config.parquetBufferMaxMb ?? 200;
-    let canBuffer = preferBuffer || isTooSmall || isLocalHost;
-    if (!canBuffer) {
-      try {
-        const head = await fetch(parquetUrl, { method: "HEAD" });
-        const length = Number(head.headers.get("content-length") || 0);
-        canBuffer = !length || length <= maxBufferMb * 1024 * 1024;
-      } catch (headError) {
-        canBuffer = false;
-      }
-    }
-
-    if (canBuffer) {
-      try {
-        await state.db.dropFile("routes.parquet");
-      } catch (dropError) {
-        // Ignore if not registered yet.
-      }
-      if (preferBuffer || isLocalHost) {
-        setStatus("Downloading routes parquet for local access...");
-      }
-      const response = await fetch(parquetUrl, { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(`Parquet download failed (${response.status})`);
-      }
-      const buffer = new Uint8Array(await response.arrayBuffer());
-      if (buffer.length < 1024 * 1024) {
-        throw new Error("Parquet download failed (file too small). Check server path.");
-      }
-      await state.db.registerFileBuffer("routes.parquet", buffer);
-      await describeParquet();
-    } else {
-      throw error;
-    }
-  }
-
-  elements.modeFilter.disabled = !state.modeField;
-  elements.operatorFilter.disabled = !state.operatorFields.length;
-
-  state.conn = conn;
-  state.spatialReady = spatialReady;
-
-  const geojsonAvailable = Boolean(state.geojsonField || (state.spatialReady && state.geometryField));
-  const bboxAvailable = state.spatialReady || state.bboxReady;
-
-  if (!bboxAvailable) {
-    elements.bboxFilter.checked = false;
-    elements.bboxFilter.disabled = true;
-  } else {
-    elements.bboxFilter.disabled = false;
-  }
-
-  state.duckdbReady = true;
-
-  if (!state.spatialReady && !geojsonAvailable) {
-    setStatus("DuckDB ready. Spatial extension unavailable; GeoJSON preview/export disabled.");
-  } else if (state.spatialReady) {
-    setStatus("DuckDB ready with spatial support.");
-  } else {
-    setStatus("DuckDB ready. Using precomputed GeoJSON for previews.");
-  }
-
-  await populateBoundaryFilters();
-};
-
-const getSelectedValues = (select) => Array.from(select.selectedOptions).map((opt) => opt.value);
-const getSelectedValue = (select) => (select ? select.value : "");
-
-const getSelectedOperators = () =>
-  Array.from(elements.operatorFilter.selectedOptions).map((opt) => ({
-    value: opt.value,
-    field: opt.dataset.field || "operatorCode"
-  }));
-
-const getSelectedTimeBands = () =>
-  elements.timeBandFilter
-    ? Array.from(elements.timeBandFilter.selectedOptions)
-        .map((opt) => opt.value)
-        .filter(Boolean)
-    : [];
+// getSelectedOperators and getSelectedTimeBands removed - now imported from ./js/filters/builder.js
 
 const setTimeBandHint = (message) => {
   if (!elements.timeBandHint) {
@@ -2255,163 +1674,8 @@ const setTimeBandHint = (message) => {
   elements.timeBandHint.classList.toggle("hidden", !message);
 };
 
-const hasAttributeFilters = () => {
-  const modes = getSelectedValues(elements.modeFilter);
-  const operators = getSelectedOperators();
-  const timeBands = getSelectedTimeBands();
-  const serviceSearch = getServiceSearchValue();
-  const laValue = getSelectedValue(elements.laFilter);
-  const rptValue = getSelectedValue(elements.rptFilter);
-  return (
-    modes.length > 0 ||
-    operators.length > 0 ||
-    timeBands.length > 0 ||
-    Boolean(serviceSearch) ||
-    Boolean(laValue) ||
-    Boolean(rptValue)
-  );
-};
-
-const buildWhere = () => {
-  const clauses = [];
-  const modes = getSelectedValues(elements.modeFilter);
-  const operators = getSelectedOperators();
-  const timeBands = getSelectedTimeBands();
-  const serviceSearch = getServiceSearchValue();
-  const laValue = getSelectedValue(elements.laFilter);
-  const rptValue = getSelectedValue(elements.rptFilter);
-
-  if (modes.length) {
-    const hasNone = modes.includes(NONE_OPTION_VALUE);
-    const values = modes.filter((mode) => mode !== NONE_OPTION_VALUE);
-    if (state.modeField) {
-      const modeField = quoteIdentifier(state.modeField);
-      const modeClauses = [];
-      if (values.length) {
-        const list = values.map((mode) => `'${escapeSql(mode)}'`).join(", ");
-        modeClauses.push(`${modeField} IN (${list})`);
-      }
-      if (hasNone) {
-        modeClauses.push(`(${modeField} IS NULL OR ${modeField} = '')`);
-      }
-      if (modeClauses.length) {
-        clauses.push(modeClauses.length > 1 ? `(${modeClauses.join(" OR ")})` : modeClauses[0]);
-      }
-    }
-  }
-
-  if (operators.length) {
-    const hasNone = operators.some((item) => item.value === NONE_OPTION_VALUE);
-    const filteredOperators = operators.filter((item) => item.value !== NONE_OPTION_VALUE);
-    const byField = filteredOperators.reduce((acc, item) => {
-      const field = item.field || "operatorCode";
-      acc[field] = acc[field] || [];
-      acc[field].push(item.value);
-      return acc;
-    }, {});
-
-    const fieldClauses = Object.entries(byField)
-      .filter(([, values]) => values.length)
-      .map(([field, values]) => {
-        const list = values.map((value) => `'${escapeSql(value)}'`).join(", ");
-        return `${quoteIdentifier(field)} IN (${list})`;
-      });
-
-    if (hasNone && state.operatorFields.length) {
-      const noneClauses = state.operatorFields.map(
-        (field) => `(${quoteIdentifier(field)} IS NULL OR ${quoteIdentifier(field)} = '')`
-      );
-      fieldClauses.push(noneClauses.length > 1 ? `(${noneClauses.join(" OR ")})` : noneClauses[0]);
-    }
-
-    if (fieldClauses.length) {
-      clauses.push(fieldClauses.length > 1 ? `(${fieldClauses.join(" OR ")})` : fieldClauses[0]);
-    }
-  }
-
-  if (timeBands.length) {
-    const bandClauses = timeBands
-      .map((key) => state.timeBandFields?.[key])
-      .filter(Boolean)
-      .map((field) => `${quoteIdentifier(field)} = TRUE`);
-    if (bandClauses.length) {
-      clauses.push(bandClauses.length > 1 ? `(${bandClauses.join(" OR ")})` : bandClauses[0]);
-    }
-  }
-
-  if (serviceSearch) {
-    const lowered = escapeSql(serviceSearch.toLowerCase());
-    const like = `'%${lowered}%'`;
-    const searchClauses = [];
-    if ((state.columns || []).includes("serviceName")) {
-      searchClauses.push(`LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE ${like}`);
-    }
-    if ((state.columns || []).includes("serviceId")) {
-      searchClauses.push(`LOWER(CAST(${quoteIdentifier("serviceId")} AS VARCHAR)) LIKE ${like}`);
-    }
-    if (searchClauses.length) {
-      clauses.push(searchClauses.length > 1 ? `(${searchClauses.join(" OR ")})` : searchClauses[0]);
-    }
-  }
-
-  if (laValue && (state.laCodesField || state.laField)) {
-    if (laValue === NONE_OPTION_VALUE) {
-      if (state.laCodesField) {
-        clauses.push(`(${quoteIdentifier(state.laCodesField)} IS NULL OR ${quoteIdentifier(state.laCodesField)} = '')`);
-      } else {
-        clauses.push(`(${quoteIdentifier(state.laField)} IS NULL OR ${quoteIdentifier(state.laField)} = '')`);
-      }
-    } else if (state.laCodesField) {
-      const needle = `|${escapeSql(laValue)}|`;
-      clauses.push(`COALESCE(${quoteIdentifier(state.laCodesField)}, '') LIKE '%${needle}%'`);
-    } else {
-      clauses.push(`${quoteIdentifier(state.laField)} = '${escapeSql(laValue)}'`);
-    }
-  }
-
-  if (rptValue && (state.rptCodesField || state.rptField)) {
-    if (rptValue === NONE_OPTION_VALUE) {
-      if (state.rptCodesField) {
-        clauses.push(`(${quoteIdentifier(state.rptCodesField)} IS NULL OR ${quoteIdentifier(state.rptCodesField)} = '')`);
-      } else {
-        clauses.push(`(${quoteIdentifier(state.rptField)} IS NULL OR ${quoteIdentifier(state.rptField)} = '')`);
-      }
-    } else if (state.rptCodesField) {
-      const needle = `|${escapeSql(rptValue)}|`;
-      clauses.push(`COALESCE(${quoteIdentifier(state.rptCodesField)}, '') LIKE '%${needle}%'`);
-    } else {
-      clauses.push(`${quoteIdentifier(state.rptField)} = '${escapeSql(rptValue)}'`);
-    }
-  }
-
-  if (state.spatialReady && state.geometryField && elements.bboxFilter.checked && state.map) {
-    const bounds = state.map.getBounds();
-    const minx = bounds.getWest();
-    const miny = bounds.getSouth();
-    const maxx = bounds.getEast();
-    const maxy = bounds.getNorth();
-    clauses.push(
-      `ST_Intersects(${quoteIdentifier(state.geometryField)}, ST_MakeEnvelope(${minx}, ${miny}, ${maxx}, ${maxy}))`
-    );
-  } else if (state.bboxReady && elements.bboxFilter.checked && state.map) {
-    const bounds = state.map.getBounds();
-    const minx = bounds.getWest();
-    const miny = bounds.getSouth();
-    const maxx = bounds.getEast();
-    const maxy = bounds.getNorth();
-    const { minx: fieldMinx, miny: fieldMiny, maxx: fieldMaxx, maxy: fieldMaxy } = state.bboxFields;
-    clauses.push(
-      `${quoteIdentifier(fieldMinx)} <= ${maxx} AND ${quoteIdentifier(fieldMaxx)} >= ${minx} AND ${quoteIdentifier(
-        fieldMiny
-      )} <= ${maxy} AND ${quoteIdentifier(fieldMaxy)} >= ${miny}`
-    );
-  }
-
-  if (!clauses.length) {
-    return "";
-  }
-  return `WHERE ${clauses.join(" AND ")}`;
-};
+// Filter builder functions removed - now imported from ./js/filters/builder.js:
+// - hasAttributeFilters, buildWhere (140+ lines)
 
 const getViewportKey = () => {
   if (!elements.bboxFilter?.checked || !state.map) {
@@ -2781,87 +2045,9 @@ const validateFilters = () => {
   return "";
 };
 
-const queryGeoJson = async (limit = 20000) => {
-  const where = buildWhere();
-  let query = "";
-  if (state.geojsonField) {
-    query = `
-      SELECT *, ${state.geojsonField} AS geojson
-      FROM read_parquet('routes.parquet')
-      ${where}
-      LIMIT ${limit}
-    `;
-  } else if (state.geometryField && state.spatialReady) {
-    query = `
-      SELECT *, ST_AsGeoJSON(${state.geometryField}) AS geojson
-      FROM read_parquet('routes.parquet')
-      ${where}
-      LIMIT ${limit}
-    `;
-  } else {
-    throw new Error("GeoJSON preview unavailable (no geometry/geojson column).");
-  }
-  const result = await state.conn.query(query);
-  const rows = result.toArray();
-  const columns = getResultColumns(result);
-
-  const features = rows.map((row) => {
-    let geometry = null;
-    if (row.geojson) {
-      geometry = typeof row.geojson === "string" ? JSON.parse(row.geojson) : row.geojson;
-    }
-    const properties = {};
-    columns.forEach((column) => {
-      if (column === "geometry" || column === "geom" || column === "geojson") {
-        return;
-      }
-      properties[column] = row[column];
-    });
-    return {
-      type: "Feature",
-      geometry,
-      properties
-    };
-  });
-
-  return {
-    type: "FeatureCollection",
-    features
-  };
-};
-
-const queryCsv = async (limit = 50000) => {
-  const where = buildWhere();
-  const columns = getCsvColumns();
-  const selectList = columns.length ? columns.map(quoteIdentifier).join(", ") : "*";
-  const query = `
-    SELECT ${selectList}
-    FROM read_parquet('routes.parquet')
-    ${where}
-    LIMIT ${limit}
-  `;
-  const result = await state.conn.query(query);
-  const rows = result.toArray();
-  if (!rows.length) {
-    return "";
-  }
-  const headers = columns.length
-    ? columns
-    : getResultColumns(result).filter((column) => !EXCLUDED_CSV_COLUMNS.has(column));
-  const lines = [headers.join(",")];
-  rows.forEach((row) => {
-    const values = headers.map((key) => {
-      const value = row[key];
-      if (value === null || value === undefined) {
-        return "";
-      }
-      const str = String(value).replace(/"/g, '""');
-      return `"${str}"`;
-    });
-    lines.push(values.join(","));
-  });
-  return lines.join("\n");
-};
+// Export functions removed - now imported from ./js/exports/handlers.js:
+// - queryGeoJson (49 lines)
+// - queryCsv (33 lines)
 
 const getTableColumns = () => {
   const available = new Set(state.columns || []);
