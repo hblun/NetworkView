@@ -7,16 +7,19 @@
   "geojsonPreviewLimit": 500,
   "vectorLayer": "routes",
   "duckdbBaseUrl": "duckdb",
-  "basemapStyle": "https://raw.githubusercontent.com/go2garret/maps/main/src/assets/json/openStreetMap.json",
+  "basemapStyle": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
   "defaultView": {
     "center": [-3.5, 56.2],
     "zoom": 6.2
   },
   "features": {
+    "autoFitScope": true,
+    "autoFitBounds": true,
     "share": false,
     "snapshot": false,
     "insightsTab": false,
     "reportingTab": false,
+    "stopStationExplorer": false,
     "layerToggles": false,
     "exportGeojson": false,
     "exportCsv": true,

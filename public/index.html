@@ -287,33 +287,20 @@
           <div class="absolute top-4 right-4 z-10">
             <div class="bg-white/95 backdrop-blur-sm p-3 rounded-lg shadow-sm border border-border/60 w-40">
               <h4 class="text-[10px] font-bold uppercase tracking-wider text-text-secondary mb-2">Legend</h4>
-              <div class="space-y-2 text-[11px] text-text-main font-medium">
-                <div class="flex items-center gap-2">
-                  <span class="w-3 h-1 bg-primary rounded-full"></span>
-                  Rail lines
-                </div>
-                <div class="flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full border border-primary bg-white"></span>
-                  Stations
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="h-2 w-2 rounded-full bg-orange-400"></span>
-                  Terminals
-                </div>
-              </div>
+              <div id="legend-items" class="space-y-2 text-[11px] text-text-main font-medium"></div>
             </div>
             <div class="mt-2 flex flex-col items-end">
               <div class="bg-white rounded-lg shadow-sm border border-border/60 flex flex-col overflow-hidden">
-                <button class="p-1.5 hover:bg-slate-50 border-b border-border/50 text-text-secondary transition-colors">
+                <button id="zoom-in" class="p-1.5 hover:bg-slate-50 border-b border-border/50 text-text-secondary transition-colors" aria-label="Zoom in" title="Zoom in">
                   <span class="material-symbols-outlined text-[20px]">add</span>
                 </button>
-                <button class="p-1.5 hover:bg-slate-50 text-text-secondary transition-colors">
+                <button id="zoom-out" class="p-1.5 hover:bg-slate-50 text-text-secondary transition-colors" aria-label="Zoom out" title="Zoom out">
                   <span class="material-symbols-outlined text-[20px]">remove</span>
                 </button>
               </div>
             </div>
           </div>
-          <div class="absolute top-16 left-16 z-20">
+          <div data-feature="stopStationExplorer" class="absolute top-16 left-16 z-20">
             <div class="bg-white rounded-lg shadow-xl border border-border w-72">
               <div class="flex justify-between items-start p-3 border-b border-border bg-slate-50 rounded-t-lg">
                 <div>

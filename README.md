@@ -29,6 +29,13 @@ http://localhost:5137
 ```
 
 Use **Load GeoJSON preview** to stream a small subset from `config.geojsonFile` (useful when DuckDB isn’t available).
+If you want to use the R2-hosted config instead, open:
+
+```
+http://localhost:5137/?config=config.r2.json
+```
+
+Note: R2 endpoints must have CORS + Range enabled or the browser will block requests.
 
 ## Feature flags
 UI elements that aren’t ready yet are hidden behind `public/config.json` feature flags:

@@ -1,5 +1,5 @@
 {
-  "dataBaseUrl": "",
+  "dataBaseUrl": "https://pub-68f801c9ef774a729dd19c234b46593b.r2.dev",
   "pmtilesFile": "routes.pmtiles",
   "parquetFile": "routes.parquet",
   "metadataFile": "metadata.json",

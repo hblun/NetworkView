@@ -389,6 +389,22 @@ Once those two are working, you’ll have a genuinely usable planner tool.
 - Updated the `public/` UI to make Phase 2 workflows tangible: real Scope chips, DuckDB-backed Data Inspector table, MapLibre layer filtering (attribute + search) and a selected-route highlight layer, plus evidence + share-state wiring.
 - Added a local Range-enabled dev server at `tools/dev_server.py` and a GeoJSON preview loader as a temporary fallback when DuckDB assets aren’t available.
 
+### Progress mapping (Phase 2 MVP surface)
+Completed (implemented in `public/` runtime)
+- Three-panel UI is now “real” (scope chips are driven by state; table is DuckDB-backed when available; map filtering is MapLibre-first).
+- Mode/operator filters + service search are wired through to both map and table queries.
+- Custom zoom buttons are wired to MapLibre; route line stroke widths scale by zoom; legend is dynamic.
+- Local dev is unblocked via `tools/dev_server.py` (Range-enabled + mounts `data/` at `/data/`) and `?config=` switching between local and R2 configs.
+- Non-ready surfaces are hidden behind feature flags (`features.*`) so we can progressively turn them on as data/API work lands.
+
+Not done (still Phase 2 scope)
+- LA/RPT clip UI (blocked on `la_code` / `rpt_code` in both PMTiles + Parquet).
+- Honest time-band UI (blocked on schedule-derived flags).
+- “Evidence built-in” needs tightening (explicitly disclose row caps + filtering limitations consistently).
+
+### Known bugs (log)
+- **Selected highlight persists across filter changes**: if a route is selected (orange highlight) and the user changes filters so that route is out-of-scope, the orange highlight can remain visible. Expected: clear selection or constrain selected highlight to the active filter/map scope.
+
 ### UI functional backlog (Phase 2 focus)
 Goal: make the existing `public/` UI “real” (filters → map → table → inspector → exports) without introducing a bundler yet.
 

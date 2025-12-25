@@ -32,7 +32,10 @@ const elements = {
   dataTableBody: document.getElementById("data-table-body"),
   dataTableEmpty: document.getElementById("data-table-empty"),
   evidenceLeft: document.getElementById("evidence-left"),
-  evidenceRight: document.getElementById("evidence-right")
+  evidenceRight: document.getElementById("evidence-right"),
+  legendItems: document.getElementById("legend-items"),
+  zoomIn: document.getElementById("zoom-in"),
+  zoomOut: document.getElementById("zoom-out")
 };
 
 const NONE_OPTION_VALUE = "__NONE__";
@@ -73,8 +76,12 @@ const state = {
     operatorName: ""
   },
   tableRows: [],
-  tableLimit: 250
+  tableLimit: 250,
+  pendingPreviewGeojson: null
 };
+
+const ROUTE_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 0.9, 8, 1.3, 11, 2.2, 14, 3.6];
+const SELECTED_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 2.2, 8, 3.0, 11, 4.4, 14, 6.2];
 
 const escapeSql = (value) => String(value).replace(/'/g, "''");
 const quoteIdentifier = (value) => `"${String(value).replace(/"/g, '""')}"`;
@@ -170,6 +177,185 @@ const applyFeatureFlags = (config) => {
   }
   if (elements.exportCsvTable) {
     elements.exportCsvTable.hidden = !exportCsvEnabled;
+  }
+};
+
+const getLayerVisible = (map, layerId) => {
+  if (!map || !layerId || !map.getLayer(layerId)) {
+    return false;
+  }
+  const visibility = map.getLayoutProperty(layerId, "visibility");
+  return visibility !== "none";
+};
+
+const renderLegend = () => {
+  if (!elements.legendItems) {
+    return;
+  }
+  const map = state.map;
+  const items = [];
+
+  if (getLayerVisible(map, "routes-line")) {
+    items.push({
+      swatch: '<span class="w-3 h-1 bg-[#d6603b] rounded-full"></span>',
+      label: "Route lines"
+    });
+  }
+
+  if (getLayerVisible(map, "routes-preview-line")) {
+    items.push({
+      swatch: '<span class="w-3 h-1 bg-[#165570] rounded-full"></span>',
+      label: "GeoJSON preview"
+    });
+  }
+
+  if (state.selectedFeature) {
+    items.push({
+      swatch: '<span class="w-3 h-1 bg-[#f59e0b] rounded-full"></span>',
+      label: "Selected route"
+    });
+  }
+
+  if (!items.length) {
+    elements.legendItems.innerHTML = '<div class="text-[11px] text-text-tertiary">No layers loaded.</div>';
+    return;
+  }
+
+  elements.legendItems.innerHTML = items
+    .map((item) => `<div class="flex items-center gap-2">${item.swatch}${item.label}</div>`)
+    .join("");
+};
+
+const updateZoomButtons = () => {
+  const map = state.map;
+  if (!map || !elements.zoomIn || !elements.zoomOut) {
+    return;
+  }
+  const zoom = map.getZoom();
+  const minZoom = typeof map.getMinZoom === "function" ? map.getMinZoom() : 0;
+  const maxZoom = typeof map.getMaxZoom === "function" ? map.getMaxZoom() : 24;
+  elements.zoomOut.disabled = zoom <= minZoom + 1e-6;
+  elements.zoomIn.disabled = zoom >= maxZoom - 1e-6;
+  elements.zoomOut.classList.toggle("opacity-50", elements.zoomOut.disabled);
+  elements.zoomIn.classList.toggle("opacity-50", elements.zoomIn.disabled);
+};
+
+const fitMapToBbox = (bbox, reason) => {
+  const map = state.map;
+  if (!map || !Array.isArray(bbox) || bbox.length !== 4) {
+    return;
+  }
+  const [minLon, minLat, maxLon, maxLat] = bbox.map(Number);
+  if (![minLon, minLat, maxLon, maxLat].every((n) => Number.isFinite(n))) {
+    return;
+  }
+  try {
+    map.fitBounds(
+      [
+        [minLon, minLat],
+        [maxLon, maxLat]
+      ],
+      { padding: 40, duration: 450 }
+    );
+    if (reason) {
+      setStatus(reason);
+    }
+  } catch (error) {
+    // Ignore invalid bounds.
+  }
+};
+
+const getGeometryCoordinates = (geometry) => {
+  if (!geometry) {
+    return [];
+  }
+  const type = geometry.type;
+  if (type === "LineString") {
+    return geometry.coordinates || [];
+  }
+  if (type === "MultiLineString") {
+    return (geometry.coordinates || []).flat();
+  }
+  if (type === "Point") {
+    return [geometry.coordinates];
+  }
+  if (type === "MultiPoint") {
+    return geometry.coordinates || [];
+  }
+  if (type === "Polygon") {
+    return (geometry.coordinates || []).flat();
+  }
+  if (type === "MultiPolygon") {
+    return (geometry.coordinates || []).flat(2);
+  }
+  return [];
+};
+
+const getFeaturesBbox = (features) => {
+  let minLon = Infinity;
+  let minLat = Infinity;
+  let maxLon = -Infinity;
+  let maxLat = -Infinity;
+
+  (features || []).forEach((feature) => {
+    const coords = getGeometryCoordinates(feature?.geometry);
+    coords.forEach((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) {
+        return;
+      }
+      const lon = Number(pair[0]);
+      const lat = Number(pair[1]);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+        return;
+      }
+      minLon = Math.min(minLon, lon);
+      minLat = Math.min(minLat, lat);
+      maxLon = Math.max(maxLon, lon);
+      maxLat = Math.max(maxLat, lat);
+    });
+  });
+
+  if (![minLon, minLat, maxLon, maxLat].every((n) => Number.isFinite(n))) {
+    return null;
+  }
+  if (minLon === maxLon && minLat === maxLat) {
+    // Avoid zero-area bounds.
+    const pad = 0.01;
+    return [minLon - pad, minLat - pad, maxLon + pad, maxLat + pad];
+  }
+  return [minLon, minLat, maxLon, maxLat];
+};
+
+const fitMapToScope = (reason) => {
+  const map = state.map;
+  if (!map || !getFeatureFlag(state.config, "autoFitScope", true)) {
+    return;
+  }
+
+  // If bbox-filter is active, the scope is explicitly the viewport; don't override.
+  if (elements.bboxFilter?.checked) {
+    return;
+  }
+
+  // Prefer GeoJSON preview bounds when present (accurate for preview scope).
+  if (state.lastPreviewGeojson?.features?.length) {
+    const bbox = getFeaturesBbox(state.lastPreviewGeojson.features);
+    if (bbox) {
+      fitMapToBbox(bbox, reason || "Fitting to preview scope...");
+      return;
+    }
+  }
+
+  // Best-effort for PMTiles/GeoJSON sources: fit to currently rendered features.
+  // This is viewport-dependent (tiles outside view aren't sampled), but still useful.
+  try {
+    const rendered = map.queryRenderedFeatures(undefined, { layers: ["routes-line"] });
+    const bbox = getFeaturesBbox(rendered);
+    if (bbox) {
+      fitMapToBbox(bbox, reason || "Fitting to scope...");
+    }
+  } catch (error) {
+    // Ignore.
   }
 };
 
@@ -563,6 +749,7 @@ const setSelection = (feature, fallbackKey = "") => {
   state.selectedFeature = feature;
   state.selectedFeatureKey = getFeatureKey(feature, fallbackKey);
   renderSelection(feature);
+  renderLegend();
 };
 
 const clearSelection = () => {
@@ -571,6 +758,7 @@ const clearSelection = () => {
   renderSelection(null);
   syncSelectedLayer();
   renderTable();
+  renderLegend();
 };
 
 const normalizeModes = (raw) => {
@@ -690,6 +878,15 @@ const initMap = (config) => {
     }
   });
 
+  // Track whether the user has intentionally moved the map (avoid fighting them with fitBounds).
+  let userMoved = false;
+  const markUserMoved = () => {
+    userMoved = true;
+  };
+  map.on("dragstart", markUserMoved);
+  map.on("zoomstart", markUserMoved);
+  map.on("rotatestart", markUserMoved);
+
   let overlay = null;
   loadDeck()
     .then(({ MapboxOverlay }) => {
@@ -711,36 +908,133 @@ const initMap = (config) => {
 
   map.on("load", () => {
     if (config.pmtilesFile) {
-      const pmtilesUrl = joinUrl(config.dataBaseUrl, config.pmtilesFile);
+      const pmtilesUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.pmtilesFile));
+      setStatus("Loading route tiles...");
       map.addSource("routes", {
         type: "vector",
         url: `pmtiles://${pmtilesUrl}`
       });
 
-      map.addLayer({
-        id: "routes-line",
-        type: "line",
-        source: "routes",
-        "source-layer": config.vectorLayer || "routes",
-        paint: {
-          "line-color": "#d6603b",
-          "line-width": 1.2,
-          "line-opacity": 0.65
+      const buildVectorLayers = (sourceLayer) => {
+        if (map.getLayer("routes-line")) {
+          map.removeLayer("routes-line");
+        }
+        if (map.getLayer(state.selectedLayerId)) {
+          map.removeLayer(state.selectedLayerId);
+        }
+
+        map.addLayer({
+          id: "routes-line",
+          type: "line",
+          source: "routes",
+          "source-layer": sourceLayer,
+          paint: {
+            "line-color": "#d6603b",
+            "line-width": ROUTE_LINE_WIDTH,
+            "line-opacity": 0.78
+          }
+        });
+
+        map.addLayer({
+          id: state.selectedLayerId,
+          type: "line",
+          source: "routes",
+          "source-layer": sourceLayer,
+          filter: ["==", ["get", "__never__"], "__never__"],
+          paint: {
+            "line-color": "#f59e0b",
+            "line-width": SELECTED_LINE_WIDTH,
+            "line-opacity": 0.95
+          }
+        });
+      };
+
+      const configured = config.vectorLayer || "routes";
+      buildVectorLayers(configured);
+
+      // Diagnose common PMTiles failures (404 / no Range support) and missing rendering.
+      const pmtilesProbe = async () => {
+        try {
+          const response = await fetch(pmtilesUrl, { headers: { Range: "bytes=0-15" } });
+          if (!response.ok) {
+            throw new Error(`PMTiles fetch failed (${response.status})`);
+          }
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          const magic = String.fromCharCode(...bytes.slice(0, 7));
+          if (magic !== "PMTiles") {
+            throw new Error("PMTiles header mismatch (not a PMTiles file).");
+          }
+          // If the server ignores Range, it may return 200; PMTiles still often works but can be slow.
+          const rangeOk = response.status === 206 || response.headers.get("accept-ranges") === "bytes";
+          if (!rangeOk) {
+            setStatus("PMTiles loaded, but server may not support Range requests (may not render). Use tools/dev_server.");
+          }
+        } catch (error) {
+          setStatus(`Routes layer not loaded: ${error.message}`);
+        }
+      };
+      pmtilesProbe();
+
+      map.on("sourcedata", (event) => {
+        if (!event) return;
+        const id = event.sourceId || event.source?.id;
+        if (id !== "routes") return;
+        // When the first source data arrives, consider fitting to metadata bounds if provided.
+        if (!userMoved && state.metadata?.bbox && getFeatureFlag(state.config, "autoFitBounds", true)) {
+          fitMapToBbox(state.metadata.bbox, "Fitting to dataset bounds...");
         }
       });
 
-      map.addLayer({
-        id: state.selectedLayerId,
-        type: "line",
-        source: "routes",
-        "source-layer": config.vectorLayer || "routes",
-        filter: ["==", ["get", "__never__"], "__never__"],
-        paint: {
-          "line-color": "#f59e0b",
-          "line-width": 4,
-          "line-opacity": 0.95
+      // Auto-detect the PMTiles source-layer name if the configured one yields no features.
+      const detectSourceLayer = () => {
+        if (!map.getSource("routes") || !map.isStyleLoaded()) {
+          return;
+        }
+        const candidates = Array.from(
+          new Set([configured, "routes", "scotlandbusroutes", "route_lines", "lines"].filter(Boolean))
+        );
+        for (const candidate of candidates) {
+          try {
+            const features = map.querySourceFeatures("routes", { sourceLayer: candidate });
+            if (features && features.length) {
+              if (candidate !== configured) {
+                setStatus(`Detected PMTiles layer '${candidate}'.`);
+                buildVectorLayers(candidate);
+                detectTileFieldsFromRendered();
+                applyMapFilters();
+                syncSelectedLayer();
+              }
+              return;
+            }
+          } catch (error) {
+            // Ignore until tiles are loaded.
+          }
+        }
+      };
+
+      map.once("idle", detectSourceLayer);
+      map.on("idle", () => {
+        // queryRenderedFeatures expects (geometry?, options). Passing the options object
+        // as geometry breaks detection and can mask rendering issues.
+        const rendered = map.queryRenderedFeatures(undefined, { layers: ["routes-line"] });
+        if (!rendered.length) {
+          detectSourceLayer();
         }
       });
+
+      // If nothing renders after a short delay, surface a helpful hint.
+      window.setTimeout(() => {
+        const rendered = map.queryRenderedFeatures(undefined, { layers: ["routes-line"] });
+        if (!rendered.length) {
+          setStatus("No routes are rendering yet. Check vectorLayer/source-layer, file path, and Range support. Try GeoJSON preview.");
+        } else {
+          setStatus("Routes rendered.");
+          if (!userMoved) {
+            // Fit once when we first see data.
+            fitMapToScope("Fitting to dataset scope...");
+          }
+        }
+      }, 3500);
     } else if (config.geojsonFile) {
       const geoUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.geojsonFile));
       map.addSource("routes-geojson", {
@@ -754,8 +1048,8 @@ const initMap = (config) => {
         source: "routes-geojson",
         paint: {
           "line-color": "#165570",
-          "line-width": 1.6,
-          "line-opacity": 0.75
+          "line-width": ROUTE_LINE_WIDTH,
+          "line-opacity": 0.88
         }
       });
 
@@ -766,7 +1060,7 @@ const initMap = (config) => {
         filter: ["==", ["get", "__never__"], "__never__"],
         paint: {
           "line-color": "#f59e0b",
-          "line-width": 4,
+          "line-width": SELECTED_LINE_WIDTH,
           "line-opacity": 0.95
         }
       });
@@ -798,8 +1092,22 @@ const initMap = (config) => {
         tryDetect();
       }
     });
+
+    if (state.pendingPreviewGeojson) {
+      const pending = state.pendingPreviewGeojson;
+      state.pendingPreviewGeojson = null;
+      showGeojsonOnMap(pending);
+    }
+
+    renderLegend();
+    updateZoomButtons();
   });
 
+  map.on("zoom", updateZoomButtons);
+  map.on("moveend", () => {
+    updateEvidence();
+  });
+  map.on("idle", renderLegend);
   state.map = map;
 };
 
@@ -981,12 +1289,8 @@ const initDuckDb = async (config) => {
   }
 
   const conn = await state.db.connect();
-  try {
-    await conn.query("SET home_directory='/'");
-    await conn.query("SET temp_directory='/'");
-  } catch (error) {
-    // Ignore if settings are not supported in this build.
-  }
+  // Note: do not force home/temp directories. Some DuckDB-WASM builds do not have
+  // a '/' directory, and setting it can break initialization.
 
   let spatialReady = false;
   try {
@@ -1564,7 +1868,11 @@ const normalizePreviewProps = (props) => {
 
 const showGeojsonOnMap = (geojson) => {
   const map = state.map;
-  if (!map || !geojson) {
+  if (!geojson) {
+    return;
+  }
+  if (!map || !map.loaded()) {
+    state.pendingPreviewGeojson = geojson;
     return;
   }
   const sourceId = "routes-preview";
@@ -1589,7 +1897,7 @@ const showGeojsonOnMap = (geojson) => {
         source: sourceId,
         paint: {
           "line-color": "#165570",
-          "line-width": 2.6,
+          "line-width": ROUTE_LINE_WIDTH,
           "line-opacity": 0.9
         }
       },
@@ -1606,7 +1914,7 @@ const showGeojsonOnMap = (geojson) => {
       filter: ["==", ["get", "__never__"], "__never__"],
       paint: {
         "line-color": "#f59e0b",
-        "line-width": 5,
+        "line-width": SELECTED_LINE_WIDTH,
         "line-opacity": 0.95
       }
     });
@@ -1630,6 +1938,8 @@ const showGeojsonOnMap = (geojson) => {
       }
     });
   }
+
+  renderLegend();
 };
 
 const queryTable = async (limit = 250) => {
@@ -1991,6 +2301,10 @@ const onApplyFilters = async () => {
     setBaseLayerFocus(filtered);
     updateScopeChips();
     updateEvidence();
+    renderLegend();
+    if (state.map) {
+      state.map.once("idle", () => fitMapToScope("Fitting to filtered scope..."));
+    }
 
     if (!state.conn) {
       setPreview("Filters applied to map. DuckDB is unavailable, so table/stats/exports are disabled.");
@@ -2051,6 +2365,7 @@ const onClearFilters = () => {
   renderTable();
   resetStats();
   updateEvidence();
+  renderLegend();
   setStatus("Filters cleared.");
 };
 
@@ -2061,6 +2376,7 @@ const onLoadSample = async () => {
     updateOverlay(geojson);
     showGeojsonOnMap(geojson);
     setPreview(`GeoJSON preview: ${formatCount(geojson.features.length)} routes (preview only).`);
+    fitMapToScope("Fitting to preview scope...");
 
     // Populate a small table from the preview, even if DuckDB isn't running yet.
     state.tableRows = geojson.features
@@ -2162,6 +2478,9 @@ const loadMetadata = async (config) => {
   populateFilters();
   updateEvidence();
   updateScopeChips();
+  if (state.map && metadata?.bbox && getFeatureFlag(state.config, "autoFitBounds", true)) {
+    fitMapToBbox(metadata.bbox, "Fitting to dataset bounds...");
+  }
 };
 
 const initTabs = () => {
@@ -2220,7 +2539,9 @@ const applyUiConfig = (config) => {
 const init = async () => {
   try {
     toggleActionButtons(false);
-    const configResponse = await fetch("config.json");
+    const params = new URLSearchParams(window.location.search);
+    const configPath = params.get("config") || "config.json";
+    const configResponse = await fetch(configPath, { cache: "no-store" });
     if (!configResponse.ok) {
       throw new Error(`Config load failed (${configResponse.status})`);
     }
@@ -2229,6 +2550,16 @@ const init = async () => {
 
     applyUiConfig(state.config);
     initMap(state.config);
+    if (elements.zoomIn) {
+      elements.zoomIn.addEventListener("click", () => {
+        if (state.map) state.map.zoomIn({ duration: 200 });
+      });
+    }
+    if (elements.zoomOut) {
+      elements.zoomOut.addEventListener("click", () => {
+        if (state.map) state.map.zoomOut({ duration: 200 });
+      });
+    }
     initTabs();
     resetStats();
     renderTable();
