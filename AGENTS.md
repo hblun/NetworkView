@@ -20,6 +20,7 @@ Document the run-time rules and expectations codified for agents working in the 
 - Update `plan.md` with any discoveries, blockers, or doc work product; the plan doubles as the decision log for prioritization conversations.
 - Track open work in Beads: issues live in `.beads/issues.jsonl` and are managed with the `bd` CLI (`bd list`, `bd create`, `bd update`, `bd close`). Beads is the source of truth for actionable tasks; `plan.md` stays as the roadmap and intent.
 - When creating Beads issues, include enough detail to act without reopening `plan.md`: phase, scope, acceptance criteria, risks/dependencies, and any relevant files/commands.
+- After working on a Beads task, add a `bd comment` summarizing what you did, key files touched, and any follow-ups.
 
 ## Runtime reminders
 - The viewer pulls `maplibre-gl`, `pmtiles`, `deck.gl`, and `@duckdb/duckdb-wasm` directly from CDNs via ES module imports. Bundling or local caching is necessary for offline or restricted environments.
