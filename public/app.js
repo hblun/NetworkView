@@ -9,6 +9,8 @@ const elements = {
   mapSnapshot: document.getElementById("map-snapshot"),
   modeFilter: document.getElementById("mode-filter"),
   operatorFilter: document.getElementById("operator-filter"),
+  timeBandFilter: document.getElementById("time-band-filter"),
+  timeBandHint: document.getElementById("time-band-hint"),
   laFilter: document.getElementById("la-filter"),
   rptFilter: document.getElementById("rpt-filter"),
   bboxFilter: document.getElementById("bbox-filter"),
@@ -36,6 +38,7 @@ const elements = {
   previewCount: document.getElementById("preview-count"),
   dataTableHead: document.getElementById("data-table-head"),
   dataTableBody: document.getElementById("data-table-body"),
+  dataTableScroll: document.getElementById("data-table-scroll"),
   dataTableEmpty: document.getElementById("data-table-empty"),
   tableMeta: document.getElementById("table-meta"),
   evidenceLeft: document.getElementById("evidence-left"),
@@ -62,6 +65,7 @@ const state = {
   db: null,
   conn: null,
   spatialReady: false,
+  duckdbReady: false,
   geometryField: "geometry",
   geojsonField: "",
   bboxFields: null,
@@ -80,6 +84,8 @@ const state = {
   columns: [],
   modeField: "mode",
   operatorFields: ["operatorCode", "operatorName", "operator"],
+  timeBandFields: {},
+  tileTimeBandFields: {},
   laField: "",
   laNameField: "",
   rptField: "",
@@ -96,6 +102,23 @@ const state = {
   },
   tableRows: [],
   tableLimit: 250,
+  tableVirtual: {
+    rowHeight: 34,
+    overscan: 8,
+    start: 0,
+    end: 0,
+    lastMeasuredAt: 0
+  },
+  tableEventsBound: false,
+  tablePaging: {
+    enabled: true,
+    pageSize: 500,
+    browseMax: 10000,
+    offset: 0,
+    rows: [],
+    loading: false,
+    queryKey: ""
+  },
   pendingPreviewGeojson: null,
   boundaryLayers: {
     la: null,
@@ -103,11 +126,23 @@ const state = {
   }
 };
 
+// Expose limited debug handle for console troubleshooting.
+if (typeof window !== "undefined") {
+  window.__NV_STATE = state;
+}
+
 const ROUTE_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 0.9, 8, 1.3, 11, 2.2, 14, 3.6];
 const SELECTED_LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 5, 2.2, 8, 3.0, 11, 4.4, 14, 6.2];
 const DEFAULT_ROUTE_COLOR = "#d6603b";
 const PREVIEW_ROUTE_COLOR = "#165570";
 const SELECTED_ROUTE_COLOR = "#f59e0b";
+const TIME_BAND_OPTIONS = [
+  { key: "weekday", label: "Weekday", candidates: ["runs_weekday", "runsWeekday", "runs_weekday_flag"] },
+  { key: "saturday", label: "Saturday", candidates: ["runs_saturday", "runsSaturday", "runs_sat", "runsSat"] },
+  { key: "sunday", label: "Sunday", candidates: ["runs_sunday", "runsSunday", "runs_sun", "runsSun"] },
+  { key: "evening", label: "Evening", candidates: ["runs_evening", "runsEvening"] },
+  { key: "night", label: "Night", candidates: ["runs_night", "runsNight"] }
+];
 
 const escapeSql = (value) => String(value).replace(/'/g, "''");
 const quoteIdentifier = (value) => `"${String(value).replace(/"/g, '""')}"`;
@@ -132,6 +167,8 @@ const toAbsoluteUrl = (value) => {
     return value;
   }
 };
+
+const getTimeBandLabel = (key) => TIME_BAND_OPTIONS.find((option) => option.key === key)?.label || key;
 
 const getFeatureFlag = (config, name, defaultValue = false) => {
   const features = config?.features || config?.ui?.features || {};
@@ -1140,6 +1177,21 @@ const resolveOperatorOption = (operator) => {
   return { value: operator.code || operator.label, label: operator.label, field: fallbackField };
 };
 
+const refreshTimeBandFilter = () => {
+  if (!elements.timeBandFilter) {
+    return;
+  }
+  const available = TIME_BAND_OPTIONS.filter((option) => state.timeBandFields?.[option.key]);
+  if (!available.length) {
+    setSelectPlaceholder(elements.timeBandFilter, "Time band (coming soon)");
+    setTimeBandHint("Time bands will unlock once timetable flags are available.");
+    return;
+  }
+  fillSelect(elements.timeBandFilter, available, (option) => ({ value: option.key, label: option.label }), false);
+  elements.timeBandFilter.disabled = false;
+  setTimeBandHint("");
+};
+
 const populateFilters = () => {
   if (!state.metadata) {
     return;
@@ -1149,26 +1201,76 @@ const populateFilters = () => {
   const operators = normalizeOperators(state.metadata.operators);
   fillSelect(elements.modeFilter, modes, (mode) => ({ value: mode, label: mode }), true);
   fillSelect(elements.operatorFilter, operators, resolveOperatorOption, true);
+  refreshTimeBandFilter();
+};
+
+const queryBoundaryOptions = async (codeField, nameField) => {
+  const query = `
+    SELECT DISTINCT
+      ${quoteIdentifier(codeField)} AS code,
+      ${quoteIdentifier(nameField)} AS name
+    FROM read_parquet('routes.parquet')
+    WHERE ${quoteIdentifier(codeField)} IS NOT NULL OR ${quoteIdentifier(nameField)} IS NOT NULL
+    ORDER BY name
+  `;
+  const rows = await state.conn.query(query);
+  return rows.toArray();
 };
 
 const populateBoundaryFilters = async () => {
   if (!state.conn) {
     return;
   }
+  if (!state.laField || !state.rptField) {
+    try {
+      const result = await state.conn.query("DESCRIBE SELECT * FROM read_parquet('routes.parquet')");
+      const columns = result.toArray().map((row) => row.column_name || row.name || row[0]);
+      if (columns.length) {
+        state.columns = columns;
+        detectSchemaFields(columns);
+      }
+    } catch (error) {
+      // Ignore; fall through to placeholder state.
+    }
+  }
+  const columnSet = new Set(state.columns.map((name) => String(name).toLowerCase()));
+  const hasColumn = (name) => columnSet.has(String(name || "").toLowerCase());
+  if (state.laField && !hasColumn(state.laField)) {
+    state.laField = "";
+    state.laNameField = "";
+  }
+  if (state.rptField && !hasColumn(state.rptField)) {
+    state.rptField = "";
+    state.rptNameField = "";
+  }
+
   if (elements.laFilter) {
-    if (!state.laField) {
+    let rows = [];
+    if (state.laField) {
+      const laNameField = state.laNameField || state.laField;
+      try {
+        rows = await queryBoundaryOptions(state.laField, laNameField);
+      } catch (error) {
+        rows = [];
+      }
+    } else {
+      try {
+        rows = await queryBoundaryOptions("la_code", "la_name");
+        state.laField = "la_code";
+        state.laNameField = "la_name";
+      } catch (error) {
+        try {
+          rows = await queryBoundaryOptions("la_code", "local_authority");
+          state.laField = "la_code";
+          state.laNameField = "local_authority";
+        } catch (innerError) {
+          rows = [];
+        }
+      }
+    }
+    if (!rows.length) {
       setSelectPlaceholder(elements.laFilter, "Local Authority unavailable");
     } else {
-      const laNameField = state.laNameField || state.laField;
-      const query = `
-        SELECT DISTINCT
-          ${quoteIdentifier(state.laField)} AS code,
-          ${quoteIdentifier(laNameField)} AS name
-        FROM read_parquet('routes.parquet')
-        WHERE ${quoteIdentifier(state.laField)} IS NOT NULL OR ${quoteIdentifier(laNameField)} IS NOT NULL
-        ORDER BY name
-      `;
-      const rows = (await state.conn.query(query)).toArray();
       fillSingleSelect(elements.laFilter, rows, (row) => ({
         value: row.code ?? row.name ?? "",
         label: row.name ?? row.code ?? ""
@@ -1178,19 +1280,26 @@ const populateBoundaryFilters = async () => {
   }
 
   if (elements.rptFilter) {
-    if (!state.rptField) {
+    let rows = [];
+    if (state.rptField) {
+      const rptNameField = state.rptNameField || state.rptField;
+      try {
+        rows = await queryBoundaryOptions(state.rptField, rptNameField);
+      } catch (error) {
+        rows = [];
+      }
+    } else {
+      try {
+        rows = await queryBoundaryOptions("rpt_code", "rpt_name");
+        state.rptField = "rpt_code";
+        state.rptNameField = "rpt_name";
+      } catch (error) {
+        rows = [];
+      }
+    }
+    if (!rows.length) {
       setSelectPlaceholder(elements.rptFilter, "RTP unavailable");
     } else {
-      const rptNameField = state.rptNameField || state.rptField;
-      const query = `
-        SELECT DISTINCT
-          ${quoteIdentifier(state.rptField)} AS code,
-          ${quoteIdentifier(rptNameField)} AS name
-        FROM read_parquet('routes.parquet')
-        WHERE ${quoteIdentifier(state.rptField)} IS NOT NULL OR ${quoteIdentifier(rptNameField)} IS NOT NULL
-        ORDER BY name
-      `;
-      const rows = (await state.conn.query(query)).toArray();
       fillSingleSelect(elements.rptFilter, rows, (row) => ({
         value: row.code ?? row.name ?? "",
         label: row.name ?? row.code ?? ""
@@ -1453,7 +1562,7 @@ const initMap = (config) => {
         if (!rendered.length) {
           setStatus("No routes are rendering yet. Check vectorLayer/source-layer, file path, and Range support. Try GeoJSON preview.");
         } else {
-          setStatus("Routes rendered.");
+          setStatus(state.duckdbReady ? "Routes rendered. DuckDB ready." : "Routes rendered. DuckDB not ready.");
           if (!userMoved) {
             // Fit once when we first see data.
             fitMapToScope("Fitting to dataset scope...");
@@ -1627,6 +1736,18 @@ const detectTileFieldsFromRendered = () => {
   state.tileFields.operatorName = state.tileFields.operatorName || resolve(["operatorName", "operator_name", "operator"]);
   state.tileFields.laCode = state.tileFields.laCode || resolve(["la_code", "laCode", "la"]);
   state.tileFields.rptCode = state.tileFields.rptCode || resolve(["rpt_code", "rptCode", "rpt"]);
+
+  if (!state.tileTimeBandFields) {
+    state.tileTimeBandFields = {};
+  }
+  TIME_BAND_OPTIONS.forEach((option) => {
+    if (!state.tileTimeBandFields[option.key]) {
+      const field = resolve(option.candidates);
+      if (field) {
+        state.tileTimeBandFields[option.key] = field;
+      }
+    }
+  });
 };
 
 const detectSchemaFields = (columns) => {
@@ -1660,6 +1781,13 @@ const detectSchemaFields = (columns) => {
   state.laNameField = findColumn(laNameCandidates);
   state.rptField = findColumn(rptCodeCandidates);
   state.rptNameField = findColumn(rptNameCandidates);
+  state.timeBandFields = {};
+  TIME_BAND_OPTIONS.forEach((option) => {
+    const field = findColumn(option.candidates);
+    if (field) {
+      state.timeBandFields[option.key] = field;
+    }
+  });
   state.geojsonField = findColumn(["geojson"]);
   const bboxFields = {
     minx: findColumn(bboxCandidates.minx),
@@ -1669,10 +1797,12 @@ const detectSchemaFields = (columns) => {
   };
   state.bboxFields = bboxFields;
   state.bboxReady = Boolean(bboxFields.minx && bboxFields.miny && bboxFields.maxx && bboxFields.maxy);
+  refreshTimeBandFilter();
 };
 
 const initDuckDb = async (config) => {
   setStatus("Initializing DuckDB...");
+  state.duckdbReady = false;
   const baseUrl = config.duckdbBaseUrl || "";
   const pickBundle = async (bundles) => {
     if (config.duckdbBundle && bundles[config.duckdbBundle]) {
@@ -1748,18 +1878,30 @@ const initDuckDb = async (config) => {
   const conn = await state.db.connect();
   // Note: do not force home/temp directories. Some DuckDB-WASM builds do not have
   // a '/' directory, and setting it can break initialization.
+  // Avoid setting home/temp directories here; some WASM builds lack a writable FS.
 
   let spatialReady = false;
   try {
-    await conn.query("INSTALL spatial");
     await conn.query("LOAD spatial");
     spatialReady = true;
-  } catch (error) {
-    spatialReady = false;
+  } catch (loadError) {
+    try {
+      await conn.query("INSTALL spatial");
+      await conn.query("LOAD spatial");
+      spatialReady = true;
+    } catch (error) {
+      spatialReady = false;
+    }
   }
 
   const parquetUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.parquetFile));
-  await state.db.registerFileURL("routes.parquet", parquetUrl);
+  const isLocalHost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost");
+  const preferBuffer = Boolean(config.parquetPreferBuffer);
+  if (!preferBuffer) {
+    await state.db.registerFileURL("routes.parquet", parquetUrl);
+  }
 
   const describeParquet = async () => {
     const result = await conn.query("DESCRIBE SELECT * FROM read_parquet('routes.parquet')");
@@ -1772,30 +1914,45 @@ const initDuckDb = async (config) => {
   };
 
   try {
+    if (preferBuffer) {
+      throw new Error("Parquet buffer preferred");
+    }
     await describeParquet();
   } catch (error) {
+    const message = String(error?.message || "");
+    const isTooSmall = message.toLowerCase().includes("too small to be a parquet file");
+    if (isTooSmall) {
+      setStatus(`Parquet URL read failed (${parquetUrl}). Downloading full file for local access...`);
+    }
     const maxBufferMb = config.parquetBufferMaxMb ?? 200;
-    let canBuffer = false;
-    try {
-      const head = await fetch(parquetUrl, { method: "HEAD" });
-      const length = Number(head.headers.get("content-length") || 0);
-      canBuffer = !length || length <= maxBufferMb * 1024 * 1024;
-    } catch (headError) {
-      canBuffer = false;
+    let canBuffer = preferBuffer || isTooSmall || isLocalHost;
+    if (!canBuffer) {
+      try {
+        const head = await fetch(parquetUrl, { method: "HEAD" });
+        const length = Number(head.headers.get("content-length") || 0);
+        canBuffer = !length || length <= maxBufferMb * 1024 * 1024;
+      } catch (headError) {
+        canBuffer = false;
+      }
     }
 
     if (canBuffer) {
-      setStatus("Parquet URL read failed. Downloading full file for local access...");
       try {
         await state.db.dropFile("routes.parquet");
       } catch (dropError) {
         // Ignore if not registered yet.
       }
-      const response = await fetch(parquetUrl);
+      if (preferBuffer || isLocalHost) {
+        setStatus("Downloading routes parquet for local access...");
+      }
+      const response = await fetch(parquetUrl, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`Parquet download failed (${response.status})`);
       }
       const buffer = new Uint8Array(await response.arrayBuffer());
+      if (buffer.length < 1024 * 1024) {
+        throw new Error("Parquet download failed (file too small). Check server path.");
+      }
       await state.db.registerFileBuffer("routes.parquet", buffer);
       await describeParquet();
     } else {
@@ -1819,6 +1976,8 @@ const initDuckDb = async (config) => {
     elements.bboxFilter.disabled = false;
   }
 
+  state.duckdbReady = true;
+
   if (!state.spatialReady && !geojsonAvailable) {
     setStatus("DuckDB ready. Spatial extension unavailable; GeoJSON preview/export disabled.");
   } else if (state.spatialReady) {
@@ -1839,19 +1998,43 @@ const getSelectedOperators = () =>
     field: opt.dataset.field || "operatorCode"
   }));
 
+const getSelectedTimeBands = () =>
+  elements.timeBandFilter
+    ? Array.from(elements.timeBandFilter.selectedOptions)
+        .map((opt) => opt.value)
+        .filter(Boolean)
+    : [];
+
+const setTimeBandHint = (message) => {
+  if (!elements.timeBandHint) {
+    return;
+  }
+  elements.timeBandHint.textContent = message || "";
+  elements.timeBandHint.classList.toggle("hidden", !message);
+};
+
 const hasAttributeFilters = () => {
   const modes = getSelectedValues(elements.modeFilter);
   const operators = getSelectedOperators();
+  const timeBands = getSelectedTimeBands();
   const serviceSearch = getServiceSearchValue();
   const laValue = getSelectedValue(elements.laFilter);
   const rptValue = getSelectedValue(elements.rptFilter);
-  return modes.length > 0 || operators.length > 0 || Boolean(serviceSearch) || Boolean(laValue) || Boolean(rptValue);
+  return (
+    modes.length > 0 ||
+    operators.length > 0 ||
+    timeBands.length > 0 ||
+    Boolean(serviceSearch) ||
+    Boolean(laValue) ||
+    Boolean(rptValue)
+  );
 };
 
 const buildWhere = () => {
   const clauses = [];
   const modes = getSelectedValues(elements.modeFilter);
   const operators = getSelectedOperators();
+  const timeBands = getSelectedTimeBands();
   const serviceSearch = getServiceSearchValue();
   const laValue = getSelectedValue(elements.laFilter);
   const rptValue = getSelectedValue(elements.rptFilter);
@@ -1901,6 +2084,16 @@ const buildWhere = () => {
 
     if (fieldClauses.length) {
       clauses.push(fieldClauses.length > 1 ? `(${fieldClauses.join(" OR ")})` : fieldClauses[0]);
+    }
+  }
+
+  if (timeBands.length) {
+    const bandClauses = timeBands
+      .map((key) => state.timeBandFields?.[key])
+      .filter(Boolean)
+      .map((field) => `${quoteIdentifier(field)} = TRUE`);
+    if (bandClauses.length) {
+      clauses.push(bandClauses.length > 1 ? `(${bandClauses.join(" OR ")})` : bandClauses[0]);
     }
   }
 
@@ -1964,6 +2157,32 @@ const buildWhere = () => {
   return `WHERE ${clauses.join(" AND ")}`;
 };
 
+const getViewportKey = () => {
+  if (!elements.bboxFilter?.checked || !state.map) {
+    return "";
+  }
+  try {
+    const b = state.map.getBounds();
+    return `bbox:${b.getWest().toFixed(4)},${b.getSouth().toFixed(4)},${b.getEast().toFixed(4)},${b.getNorth().toFixed(4)}`;
+  } catch (error) {
+    return "";
+  }
+};
+
+const getFilterKey = () => {
+  const where = buildWhere();
+  const viewport = getViewportKey();
+  return `${where}|${viewport}`;
+};
+
+const buildBooleanTileMatch = (field) => [
+  "any",
+  ["==", ["get", field], true],
+  ["==", ["get", field], 1],
+  ["==", ["to-string", ["get", field]], "true"],
+  ["==", ["to-string", ["get", field]], "1"]
+];
+
 const buildMapFilter = () => {
   const expressions = ["all"];
 
@@ -1979,6 +2198,7 @@ const buildMapFilter = () => {
   const serviceNameKeys = mapCandidateKeys(state.tileFields.serviceName, ["serviceName", "service_name", "name"]);
   const laKeys = mapCandidateKeys(state.tileFields.laCode, ["la_code", "laCode", "la"]);
   const rptKeys = mapCandidateKeys(state.tileFields.rptCode, ["rpt_code", "rptCode", "rpt"]);
+  const timeBands = getSelectedTimeBands();
 
   const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
   if (modes.length && modeKeys.length) {
@@ -1993,6 +2213,16 @@ const buildMapFilter = () => {
     if (operatorKeys.length) {
       const value = coalesceGet(operatorKeys, "");
       expressions.push(["match", value, operators, true, false]);
+    }
+  }
+
+  if (timeBands.length) {
+    const timeFilters = timeBands
+      .map((key) => state.tileTimeBandFields?.[key])
+      .filter(Boolean)
+      .map((field) => buildBooleanTileMatch(field));
+    if (timeFilters.length) {
+      expressions.push(["any", ...timeFilters]);
     }
   }
 
@@ -2218,6 +2448,10 @@ const validateFilters = () => {
   if (operators.length && !state.operatorFields.length) {
     return "Operator filter unavailable: no operator columns detected in dataset.";
   }
+  const timeBands = getSelectedTimeBands();
+  if (timeBands.length && (!state.timeBandFields || !Object.keys(state.timeBandFields).length)) {
+    return "Time band filter unavailable: no timetable flag columns detected in dataset.";
+  }
   if (elements.bboxFilter.checked && !state.spatialReady && !state.bboxReady) {
     return "BBox filter unavailable: no geometry/bbox columns detected.";
   }
@@ -2340,43 +2574,212 @@ const renderTableHead = () => {
   });
 };
 
+const getTableTotalRows = () => {
+  if (state.conn && state.tablePaging.enabled) {
+    const selection = state.lastQuery?.count ?? null;
+    if (selection === null || selection === undefined) {
+      return state.tablePaging.rows.length;
+    }
+    return Math.min(toNumber(selection), state.tablePaging.browseMax);
+  }
+  return (state.tableRows || []).length;
+};
+
+const getTableLoadedRange = () => {
+  if (state.conn && state.tablePaging.enabled) {
+    const start = state.tablePaging.offset;
+    const end = start + (state.tablePaging.rows?.length || 0);
+    return { start, end };
+  }
+  return { start: 0, end: (state.tableRows || []).length };
+};
+
+const updateTableMeta = (rowsShown) => {
+  if (!elements.tableMeta) {
+    return;
+  }
+  const selection = state.lastQuery?.count ?? null;
+  const total = selection !== null && selection !== undefined ? toNumber(selection) : null;
+  const browseTotal = getTableTotalRows();
+  const range = getTableLoadedRange();
+
+  if (state.conn && state.tablePaging.enabled) {
+    const showingFrom = Math.min(browseTotal, range.start + 1);
+    const showingTo = Math.min(browseTotal, range.end);
+    const capNote = total !== null && total > browseTotal ? ` (selection ${formatCount(total)}; cap ${formatCount(browseTotal)})` : "";
+    if (state.tablePaging.loading && rowsShown === 0) {
+      elements.tableMeta.textContent = "Loading rows...";
+      return;
+    }
+    elements.tableMeta.textContent = `Rows ${formatCount(showingFrom)}–${formatCount(showingTo)} of ${formatCount(
+      browseTotal
+    )}${capNote}.`;
+    return;
+  }
+
+  if (!rowsShown) {
+    elements.tableMeta.textContent = "No rows.";
+    return;
+  }
+  if (total !== null && total !== undefined && total > rowsShown) {
+    elements.tableMeta.textContent = `Showing ${formatCount(rowsShown)} of ${formatCount(total)}.`;
+  } else {
+    elements.tableMeta.textContent = `${formatCount(rowsShown)} rows.`;
+  }
+};
+
+const measureRowHeight = () => {
+  const now = Date.now();
+  if (now - (state.tableVirtual.lastMeasuredAt || 0) < 150) {
+    return;
+  }
+  state.tableVirtual.lastMeasuredAt = now;
+
+  const tbody = elements.dataTableBody;
+  if (!tbody) return;
+  const row = tbody.querySelector("tr[data-row-index]");
+  if (!row) return;
+  const h = row.getBoundingClientRect().height;
+  if (!h || !Number.isFinite(h)) return;
+  const next = Math.max(24, Math.round(h));
+  const prev = state.tableVirtual.rowHeight || 34;
+  if (Math.abs(next - prev) >= 2) {
+    state.tableVirtual.rowHeight = next;
+    renderTable();
+  }
+};
+
+const fetchTablePage = async (offset, pageSize, queryKey) => {
+  const where = buildWhere();
+  const cols = getTableColumns().map((c) => c.key);
+  const selectList = cols.length ? cols.map(quoteIdentifier).join(", ") : "*";
+  const order = state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "1";
+  const query = `
+    SELECT ${selectList}
+    FROM read_parquet('routes.parquet')
+    ${where}
+    ORDER BY ${order}
+    LIMIT ${pageSize}
+    OFFSET ${offset}
+  `;
+  const result = await state.conn.query(query);
+  const rows = result.toArray();
+  // Ignore stale fetches.
+  if (state.tablePaging.queryKey !== queryKey) {
+    return;
+  }
+  state.tablePaging.offset = offset;
+  state.tablePaging.rows = rows;
+};
+
+const getTableRowAtIndex = (index) => {
+  if (state.conn && state.tablePaging.enabled) {
+    const range = getTableLoadedRange();
+    if (index < range.start || index >= range.end) {
+      return null;
+    }
+    return state.tablePaging.rows[index - range.start] || null;
+  }
+  return state.tableRows[index] || null;
+};
+
+const ensureTablePageFor = (index) => {
+  if (!state.conn || !state.tablePaging.enabled) {
+    return;
+  }
+  const selection = state.lastQuery?.count ?? null;
+  const total = selection !== null && selection !== undefined ? toNumber(selection) : null;
+  const browseTotal = getTableTotalRows();
+  if (browseTotal === 0) {
+    state.tablePaging.rows = [];
+    return;
+  }
+  const cappedIndex = Math.max(0, Math.min(index, browseTotal - 1));
+  const { start, end } = getTableLoadedRange();
+  if (cappedIndex >= start && cappedIndex < end && state.tablePaging.rows.length) {
+    return;
+  }
+  if (state.tablePaging.loading) {
+    return;
+  }
+
+  const pageSize = state.tablePaging.pageSize;
+  const nextOffset = Math.max(0, Math.floor(cappedIndex / pageSize) * pageSize);
+  const queryKey = state.tablePaging.queryKey;
+  state.tablePaging.loading = true;
+  setStatus("Loading table rows...");
+  fetchTablePage(nextOffset, pageSize, queryKey)
+    .catch((error) => {
+      setStatus(`Table load failed: ${error.message}`);
+      state.tablePaging.rows = [];
+    })
+    .finally(() => {
+      state.tablePaging.loading = false;
+      renderTable();
+    });
+
+  // If selection is capped for browsing, make sure we disclose it.
+  if (total !== null && total > browseTotal) {
+    updateEvidence();
+  }
+};
+
 const renderTable = () => {
   if (!elements.dataTableBody || !elements.dataTableEmpty) {
     return;
   }
   renderTableHead();
-  clearElement(elements.dataTableBody);
 
-  const rows = state.tableRows || [];
+  const paging = state.conn && state.tablePaging.enabled;
+  const rows = paging ? state.tablePaging.rows || [] : state.tableRows || [];
   const cols = getTableColumns();
-  elements.dataTableEmpty.style.display = rows.length ? "none" : "flex";
+  const totalRows = getTableTotalRows();
+  elements.dataTableEmpty.style.display = totalRows ? "none" : "flex";
 
   const selectedServiceId = getSelectedServiceId();
-  if (elements.tableMeta) {
-    const total = state.lastQuery?.count ?? null;
-    if (!rows.length) {
-      elements.tableMeta.textContent = "No rows.";
-    } else if (total !== null && total !== undefined && total > rows.length) {
-      elements.tableMeta.textContent = `Showing ${formatCount(rows.length)} of ${formatCount(total)} (table capped at ${formatCount(
-        state.tableLimit
-      )}).`;
-    } else {
-      elements.tableMeta.textContent = `${formatCount(rows.length)} rows.`;
-    }
+  updateTableMeta(Math.min(totalRows, paging ? rows.length : (state.tableRows || []).length));
+
+  if (totalRows === 0) {
+    clearElement(elements.dataTableBody);
+    return;
   }
 
-  rows.forEach((row) => {
+  const scroll = elements.dataTableScroll;
+  const rowHeight = state.tableVirtual.rowHeight || 34;
+  const overscan = state.tableVirtual.overscan || 8;
+  const scrollTop = scroll ? scroll.scrollTop : 0;
+  const viewport = scroll ? scroll.clientHeight : 400;
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const end = Math.min(totalRows, Math.ceil((scrollTop + viewport) / rowHeight) + overscan);
+  state.tableVirtual.start = start;
+  state.tableVirtual.end = end;
+
+  if (paging) {
+    ensureTablePageFor(start);
+  }
+
+  const topPad = start * rowHeight;
+  const bottomPad = (totalRows - end) * rowHeight;
+
+  const fragment = document.createDocumentFragment();
+
+  const spacerTop = document.createElement("tr");
+  spacerTop.dataset.spacer = "top";
+  spacerTop.style.height = `${topPad}px`;
+  spacerTop.innerHTML = `<td colspan="${cols.length}" style="padding:0;border:0"></td>`;
+  fragment.appendChild(spacerTop);
+
+  const loaded = paging ? getTableLoadedRange() : { start: 0, end: rows.length };
+  for (let i = start; i < end; i += 1) {
+    const localIndex = paging ? i - loaded.start : i;
+    const row = rows[localIndex];
     const tr = document.createElement("tr");
-    const rowServiceId = row.serviceId ?? null;
-    const isSelected = selectedServiceId && rowServiceId && String(rowServiceId) === String(selectedServiceId);
+    tr.dataset.rowIndex = String(i);
+    const rowServiceId = row?.serviceId ?? null;
+    const isSelected = row && selectedServiceId && rowServiceId && String(rowServiceId) === String(selectedServiceId);
     tr.className = isSelected
       ? "bg-blue-50/60 hover:bg-blue-50 transition-colors cursor-pointer"
       : "hover:bg-slate-50 transition-colors cursor-pointer";
-    tr.addEventListener("click", () => {
-      setSelection({ properties: row }, `serviceId:${rowServiceId ?? ""}`);
-      syncSelectedLayer();
-      renderTable();
-    });
 
     cols.forEach((col) => {
       const td = document.createElement("td");
@@ -2385,13 +2788,23 @@ const renderTable = () => {
         (col.align === "right" ? " text-right font-mono" : "") +
         (col.key === "serviceName" ? " font-medium text-text-main" : "") +
         (col.mono ? " font-mono" : "");
-      const value = row[col.key];
+      const value = row ? row[col.key] : "";
       td.textContent = value === null || value === undefined ? "" : String(value);
       tr.appendChild(td);
     });
 
-    elements.dataTableBody.appendChild(tr);
-  });
+    fragment.appendChild(tr);
+  }
+
+  const spacerBottom = document.createElement("tr");
+  spacerBottom.dataset.spacer = "bottom";
+  spacerBottom.style.height = `${bottomPad}px`;
+  spacerBottom.innerHTML = `<td colspan="${cols.length}" style="padding:0;border:0"></td>`;
+  fragment.appendChild(spacerBottom);
+
+  clearElement(elements.dataTableBody);
+  elements.dataTableBody.appendChild(fragment);
+  window.requestAnimationFrame(measureRowHeight);
 };
 
 const normalizePreviewProps = (props) => {
@@ -2495,7 +2908,7 @@ const showGeojsonOnMap = (geojson) => {
   renderLegend();
 };
 
-const queryTable = async (limit = 250) => {
+const queryTable = async (limit = 250, offset = 0) => {
   const where = buildWhere();
   const cols = getTableColumns().map((c) => c.key);
   const selectList = cols.length ? cols.map(quoteIdentifier).join(", ") : "*";
@@ -2505,6 +2918,7 @@ const queryTable = async (limit = 250) => {
     ${where}
     ORDER BY ${state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "1"}
     LIMIT ${limit}
+    OFFSET ${offset}
   `;
   const result = await state.conn.query(query);
   return result.toArray();
@@ -2521,6 +2935,7 @@ const updateScopeChips = () => {
   const operators = getSelectedOperators()
     .map((o) => o.value)
     .filter((o) => o && o !== NONE_OPTION_VALUE);
+  const timeBands = getSelectedTimeBands().filter((band) => band);
   const laSelection = getSelectedValue(elements.laFilter);
   const rptSelection = getSelectedValue(elements.rptFilter);
   const laLabel = elements.laFilter?.selectedOptions?.[0]?.textContent || "";
@@ -2530,6 +2945,13 @@ const updateScopeChips = () => {
 
   if (modes.length) chips.push({ key: "modes", icon: "directions_bus", label: `Mode: ${modes.join(", ")}` });
   if (operators.length) chips.push({ key: "ops", icon: "apartment", label: `Operator: ${operators.join(", ")}` });
+  if (timeBands.length) {
+    chips.push({
+      key: "time",
+      icon: "schedule",
+      label: `Time: ${timeBands.map(getTimeBandLabel).join(", ")}`
+    });
+  }
   if (laSelection) chips.push({ key: "la", icon: "place", label: `LA: ${laLabel || laSelection}` });
   if (rptSelection) chips.push({ key: "rpt", icon: "hub", label: `RTP: ${rptLabel || rptSelection}` });
   if (search) chips.push({ key: "search", icon: "search", label: `Search: ${search}` });
@@ -2552,6 +2974,12 @@ const updateScopeChips = () => {
       Array.from(elements.operatorFilter.options).forEach((opt) => {
         opt.selected = false;
       });
+    } else if (key === "time") {
+      if (elements.timeBandFilter) {
+        Array.from(elements.timeBandFilter.options).forEach((opt) => {
+          opt.selected = false;
+        });
+      }
     } else if (key === "search") {
       if (elements.serviceSearch) elements.serviceSearch.value = "";
     } else if (key === "bbox") {
@@ -2600,10 +3028,13 @@ const updateEvidence = () => {
 
   elements.evidenceLeft.innerHTML = "";
   const selectionCount = state.lastQuery?.count ?? null;
+  const browseMax = state.tablePaging?.enabled ? state.tablePaging.browseMax : state.tableLimit;
   const limitNote =
-    selectionCount !== null && selectionCount !== undefined && selectionCount > state.tableLimit
-      ? `Table shows first ${formatCount(state.tableLimit)}`
-      : null;
+    selectionCount !== null && selectionCount !== undefined && selectionCount > browseMax
+      ? `Browsing capped at ${formatCount(browseMax)}`
+      : selectionCount !== null && selectionCount !== undefined && selectionCount > state.tableLimit
+        ? `Table shows first ${formatCount(state.tableLimit)}`
+        : null;
   const leftParts = [
     `Scope: <strong class="font-semibold">${hint}</strong>`,
     total ? `Dataset rows: <strong class="font-semibold">${formatCount(total)}</strong>` : null,
@@ -2893,24 +3324,61 @@ const onApplyFilters = async () => {
     const count = await queryCount();
     const countNumber = toNumber(count);
     setPreview(`${formatCount(count)} routes in selection.`);
+    state.lastQuery = { count: countNumber };
+    state.tablePaging.enabled = true;
+    state.tablePaging.queryKey = getFilterKey();
+    state.tablePaging.offset = 0;
+    state.tablePaging.rows = [];
 
     if (countNumber === 0) {
       setStatus("No routes matched the current filters.");
       state.tableRows = [];
+      state.tablePaging.rows = [];
       renderTable();
     } else {
       setStatus("Filters applied. Table/stats updated.");
     }
 
     await updateStats(countNumber);
-    state.tableRows = await queryTable(state.tableLimit);
-    renderTable();
+    // Paging mode: load first page; non-paging mode: use full tableRows.
+    if (state.tablePaging.enabled) {
+      renderTable();
+      ensureTablePageFor(0);
+    } else {
+      state.tableRows = await queryTable(state.tableLimit, 0);
+      renderTable();
+    }
     updateEvidence();
-    state.lastQuery = { count: countNumber };
   } catch (error) {
     setStatus(`Query failed: ${error.message}`);
   } finally {
     toggleActionButtons(true);
+  }
+};
+
+const loadInitialDatasetView = async () => {
+  if (!state.conn) {
+    return;
+  }
+  setStatus("Loading initial table...");
+  try {
+    const count = await queryCount();
+    const countNumber = toNumber(count);
+    state.lastQuery = { count: countNumber };
+    setPreview(`${formatCount(countNumber)} routes in selection.`);
+
+    state.tablePaging.enabled = true;
+    state.tablePaging.queryKey = getFilterKey();
+    state.tablePaging.offset = 0;
+    state.tablePaging.rows = [];
+    renderTable();
+    ensureTablePageFor(0);
+
+    await updateStats(countNumber);
+    updateEvidence();
+    setStatus("Ready.");
+  } catch (error) {
+    setStatus(`Initial load failed: ${error.message}`);
   }
 };
 
@@ -2921,6 +3389,11 @@ const onClearFilters = () => {
   Array.from(elements.operatorFilter.options).forEach((opt) => {
     opt.selected = false;
   });
+  if (elements.timeBandFilter) {
+    Array.from(elements.timeBandFilter.options).forEach((opt) => {
+      opt.selected = false;
+    });
+  }
   if (elements.laFilter) {
     elements.laFilter.value = "";
   }
@@ -2936,6 +3409,11 @@ const onClearFilters = () => {
   }
   state.lastPreviewGeojson = null;
   state.tableRows = [];
+  state.tablePaging.enabled = true;
+  state.tablePaging.queryKey = getFilterKey();
+  state.tablePaging.offset = 0;
+  state.tablePaging.rows = [];
+  state.lastQuery = null;
   clearSelection();
   setBaseLayerFocus(false);
   applyMapFilters();
@@ -2957,10 +3435,13 @@ const onLoadSample = async () => {
     fitMapToScope("Fitting to preview scope...");
 
     // Populate a small table from the preview, even if DuckDB isn't running yet.
+    state.tablePaging.enabled = false;
+    state.lastQuery = { count: geojson.features.length };
     state.tableRows = geojson.features
       .slice(0, state.tableLimit)
       .map((feature) => normalizePreviewProps(feature.properties || {}));
     renderTable();
+    updateEvidence();
 
     setStatsHint("GeoJSON preview loaded. Use DuckDB for full stats/exports when available.");
     setStatus("GeoJSON preview loaded.");
@@ -3124,6 +3605,9 @@ const init = async () => {
       throw new Error(`Config load failed (${configResponse.status})`);
     }
     state.config = await configResponse.json();
+    state.tableLimit = Math.max(100, Math.min(Number(state.config.tableLimit ?? 2000), 10000));
+    state.tablePaging.pageSize = Math.max(100, Math.min(Number(state.config.tablePageSize ?? 500), 5000));
+    state.tablePaging.browseMax = Math.max(state.tablePaging.pageSize, Math.min(Number(state.config.tableBrowseMax ?? 10000), 500000));
     applyFeatureFlags(state.config);
 
     applyUiConfig(state.config);
@@ -3186,6 +3670,38 @@ const init = async () => {
     initTabs();
     resetStats();
     renderTable();
+    if (!state.tableEventsBound && elements.dataTableBody) {
+      state.tableEventsBound = true;
+      elements.dataTableBody.addEventListener("click", (event) => {
+        const tr = event.target?.closest?.("tr");
+        const idx = tr?.dataset?.rowIndex;
+        if (idx === undefined) {
+          return;
+        }
+        const row = getTableRowAtIndex(Number(idx));
+        if (!row) {
+          if (state.conn && state.tablePaging.enabled) {
+            ensureTablePageFor(Number(idx));
+            setStatus("Loading row... click again.");
+          }
+          return;
+        }
+        const rowServiceId = row.serviceId ?? "";
+        setSelection({ properties: row }, `serviceId:${rowServiceId}`);
+        syncSelectedLayer();
+        renderTable();
+      });
+    }
+    if (elements.dataTableScroll) {
+      let timer = null;
+      elements.dataTableScroll.addEventListener("scroll", () => {
+        if (timer) window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          timer = null;
+          renderTable();
+        }, 16);
+      });
+    }
     try {
       await loadMetadata(state.config);
     } catch (error) {
@@ -3203,17 +3719,7 @@ const init = async () => {
       await initDuckDb(state.config);
       populateFilters();
 
-      const total = state.metadata?.counts?.total ?? state.metadata?.total ?? null;
-      const countNumber = total !== null && total !== undefined ? toNumber(total) : null;
-      if (countNumber !== null) {
-        setPreview(`${formatCount(countNumber)} routes in dataset.`);
-      } else {
-        setPreview("Dataset loaded.");
-      }
-      state.tableRows = await queryTable(state.tableLimit);
-      renderTable();
-      await updateStats(countNumber);
-      updateEvidence();
+      await loadInitialDatasetView();
     } catch (duckdbError) {
       state.conn = null;
       state.db = null;

@@ -20,13 +20,15 @@ window.addEventListener("unhandledrejection", (event) => {
 
 setStatus("Booting up...");
 
+const APP_VERSION = "2025-12-25-4";
+
 const loadApp = async () => {
   try {
-    await import("./app.js");
+    await import(`./app.js?v=${APP_VERSION}`);
     setStatus("Loading app...");
   } catch (error) {
     try {
-      const res = await fetch("./app.js", { cache: "no-store" });
+      const res = await fetch(`./app.js?v=${APP_VERSION}`, { cache: "no-store" });
       setStatus(`Failed to load app: ${error.message} (app.js ${res.status})`);
     } catch (fetchError) {
       setStatus(`Failed to load app: ${error.message} (${fetchError.message})`);

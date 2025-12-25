@@ -191,6 +191,15 @@
                 ></select>
               </label>
               <label class="flex flex-col gap-2 text-[11px] text-text-secondary">
+                Time band
+                <select
+                  id="time-band-filter"
+                  multiple
+                  class="rounded-lg border border-border bg-slate-50 text-text-main text-xs h-24 focus:ring-primary focus:border-primary"
+                ></select>
+                <span id="time-band-hint" class="text-[10px] text-text-tertiary pl-1 hidden"></span>
+              </label>
+              <label class="flex flex-col gap-2 text-[11px] text-text-secondary">
                 Local Authority
                 <select
                   id="la-filter"
@@ -218,7 +227,7 @@
               </button>
               <div id="advanced-panel" class="hidden space-y-2 pt-1">
                 <label class="flex items-center gap-2 text-xs">
-                  <input class="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" id="bbox-filter" checked />
+                  <input class="rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" id="bbox-filter" />
                   <span>Limit to map viewport</span>
                 </label>
                 <label class="flex items-center gap-2 text-xs">
@@ -431,7 +440,7 @@
               </button>
             </div>
           </div>
-          <div class="flex-1 overflow-auto bg-white relative">
+          <div id="data-table-scroll" class="flex-1 overflow-auto bg-white relative">
             <table id="data-table" class="w-full text-left border-collapse min-w-[900px] text-xs">
               <thead class="bg-surface-alt sticky top-0 z-10 shadow-sm">
                 <tr id="data-table-head"></tr>
@@ -449,6 +458,6 @@
         </section>
       </main>
     </div>
-    <script type="module" src="boot.js"></script>
+    <script type="module" src="boot.js?v=2025-12-25-4"></script>
   </body>
 </html>
