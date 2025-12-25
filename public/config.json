@@ -13,5 +13,8 @@
       56.2
     ],
     "zoom": 6.2
+  },
+  "features": {
+    "vibeKanbanWebCompanion": true
   }
 }

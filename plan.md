@@ -384,5 +384,55 @@ Once those two are working, you’ll have a genuinely usable planner tool.
 - The current data assets (`routes.pmtiles`, `routes.parquet`, `metadata.json`) plus `public/config.json` and `README.md` define the minimal steps for running locally and updating datasets.
 
 ### Follow-up
-- Added `BASELINE.md` to capture this snapshot (assets, dependencies, run commands, limitations) so future updates can compare against today’s working surface.
-- No automated verification scripts exist yet; the earliest follow-ups should include smoke checks for metadata/parquet freshness and a short “does `config.json` still point to the right R2 bucket?” routine.
+- Added `BASELINE.md` to capture this snapshot (assets, dependencies, run commands, limitations) so future updates can compare against today's working surface.
+- No automated verification scripts exist yet; the earliest follow-ups should include smoke checks for metadata/parquet freshness and a short "does `config.json` still point to the right R2 bucket?" routine.
+
+## Vibe Kanban Web Companion Integration (2025-12-25)
+
+### Build System Migration
+- Introduced a minimal Vite + React + TypeScript build system to support the Vibe Kanban Web Companion integration while maintaining compatibility with the existing static app.
+- Created `package.json` with dependencies:
+  - `vite@^6.0.3` - Build tool and dev server
+  - `react@^18.3.1` and `react-dom@^18.3.1` - React framework
+  - `vibe-kanban-web-companion@^0.0.5` - Web companion component
+  - `typescript@^5.7.2` and `@vitejs/plugin-react@^4.3.4` - Type safety and React support
+- Dev server runs on port 5137 (matching the original Python dev server port)
+- Build output goes to `dist/` directory
+
+### Integration Architecture
+- Created `src/App.tsx` as a React wrapper that:
+  1. Dynamically loads the original HTML content from `public/index.original.html` into a container div
+  2. Injects the legacy `boot.js` script after HTML is loaded using a runtime script tag
+  3. Conditionally renders `<VibeKanbanWebCompanion />` based on the feature flag in `config.json`
+  4. Only shows the web companion in development mode (`import.meta.env.DEV`)
+- The original static app remains in `public/` with `index.html` renamed to `index.original.html` for reference
+- New Vite entry point is `index.html` in the project root, loading `src/main.tsx`
+
+### Feature Flag Configuration
+- Added `features.vibeKanbanWebCompanion` flag to `public/config.json`:
+  ```json
+  {
+    "features": {
+      "vibeKanbanWebCompanion": true
+    }
+  }
+  ```
+- The flag allows enabling/disabling the web companion without code changes
+- Set to `true` by default for development environments
+
+### Development Workflow
+- `npm run dev` - Starts Vite dev server on http://localhost:5137 with HMR
+- `npm run build` - Produces optimized production bundle in `dist/`
+- `npm run preview` - Previews the production build locally
+- `npm run type-check` - Runs TypeScript type checking without emitting files
+
+### Production Considerations
+- The Vibe Kanban Web Companion is tree-shaken from production builds (only included when `import.meta.env.DEV` is true)
+- Production deployments should serve the `dist/` directory instead of `public/`
+- All legacy assets (PMTiles, Parquet, metadata.json, config.json) remain in `public/` and are copied to `dist/` during build via Vite's `publicDir` setting
+
+### Compatibility Notes
+- The legacy `app.js`, `boot.js`, and `styles.css` remain unchanged and fully functional
+- The React wrapper approach ensures no breaking changes to existing functionality
+- MapLibre, DuckDB-WASM, and deck.gl continue to load from CDNs as before
+- The transition maintains backward compatibility while enabling modern development tooling
