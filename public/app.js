@@ -2091,13 +2091,11 @@ const updateOverlay = (geojson) => {
     autoHighlight: true,
     highlightColor: [255, 226, 145, 200],
     getPath: (feature) => feature.geometry?.coordinates || [],
-    getColor: (feature) => {
-      if (state.colorByOperator) {
-        // Fallback color for safety, though _operatorColor should always be present.
-        return (feature.properties || {})._operatorColor || [22, 85, 112, 180];
-      }
-      return [22, 85, 112, 180];
-    },
+    // Optimization: Use a constant color when not coloring by operator, which is faster
+    // for Deck.gl to process than invoking a function for every feature.
+    getColor: state.colorByOperator
+      ? (feature) => (feature.properties || {})._operatorColor || [22, 85, 112, 180]
+      : [22, 85, 112, 180],
     widthUnits: "pixels",
     getWidth: 2,
     opacity: 0.9,
