@@ -26,6 +26,7 @@ describe("app wiring", () => {
 
     expectNoMatch(/buildWhere\(\s*\)/, "buildWhere called without filters");
     expectNoMatch(/buildMapFilter\(\s*\)/, "buildMapFilter called without filters");
+    expect(appSource).toMatch(/buildMapFilter\(\s*filters\s*,\s*state\.tileFields\s*\)/);
     expectNoMatch(/hasAttributeFilters\(\s*\)/, "hasAttributeFilters called without filters");
   });
 

@@ -157,7 +157,7 @@ export const getFeatureKey = (feature, fallback = "") => {
  * @param {object} tileFields - Detected tile field names
  * @returns {Array|null} MapLibre filter expression or null
  */
-export const buildMapFilter = (filters, tileFields) => {
+export const buildMapFilter = (filters, tileFields = {}) => {
   const { modes = [], operators = [], laValue = "", rptValue = "" } = filters;
 
   const expressions = ["all"];

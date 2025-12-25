@@ -23,6 +23,8 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - DuckDB-WASM range reads can fail against local servers without robust range support; local dev now prefers buffering `routes.parquet` into memory (`parquetPreferBuffer`) to avoid “file too small” errors.
 - Phase 3 integration check: several module helpers now require explicit UI parameters (operators, time bands, service search); missing argument wiring in `public/app.js`, plus missing `filters` propagation in table paging and export handlers, can silently disable filters or crash exports unless fixed.
 - Phase 3 integration check: `initDuckDb` now requires `duckdb` + `setStatus`; missing args caused DuckDB init to fail at runtime while unit tests still passed. Added app wiring tests to catch these runtime-only regressions.
+- Phase 3 integration check: map filter wiring must pass detected `tileFields` into `buildMapFilter`; missing tileFields caused runtime crashes when MapLibre fired idle events before detection.
+- DuckDB-WASM spatial extension now sets home/extension directories to avoid `/home/web_user` errors in browser FS.
 
 
 ## Architecture overview

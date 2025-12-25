@@ -2167,7 +2167,10 @@ const initMap = (config) => {
 
     // Try to infer tile field names from rendered features for reliable filters.
     const tryDetect = () => {
-      detectTileFieldsFromRendered(state.map, state.baseLayerId);
+      const detected = detectTileFieldsFromRendered(state.map, state.baseLayerId);
+      if (detected && Object.keys(detected).length) {
+        state.tileFields = { ...state.tileFields, ...detected };
+      }
       applyMapFilters();
     };
     map.once("idle", tryDetect);
@@ -2261,11 +2264,14 @@ const applyMapFilters = () => {
   }
   if (map.getLayer(state.baseLayerId)) {
     const filters = getCurrentFilters();
-    let filter = buildMapFilter(filters);
+    let filter = buildMapFilter(filters, state.tileFields);
     // If filters are set but we cannot build a tile filter yet, retry tile field detection from rendered features.
     if (!filter && hasAttributeFilters(filters)) {
-      detectTileFieldsFromRendered(state.map, state.baseLayerId);
-      filter = buildMapFilter(filters);
+      const detected = detectTileFieldsFromRendered(state.map, state.baseLayerId);
+      if (detected && Object.keys(detected).length) {
+        state.tileFields = { ...state.tileFields, ...detected };
+      }
+      filter = buildMapFilter(filters, state.tileFields);
     }
     if (!filter && hasAttributeFilters(filters)) {
       const warningKey = JSON.stringify({

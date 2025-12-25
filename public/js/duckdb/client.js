@@ -200,6 +200,12 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
   // Try to load spatial extension
   let spatialReady = false;
   try {
+    try {
+      await conn.query("SET home_directory='/'");
+      await conn.query("SET extension_directory='/'");
+    } catch (homeError) {
+      // Non-fatal; continue with default directories.
+    }
     await conn.query("LOAD spatial");
     spatialReady = true;
   } catch (loadError) {
