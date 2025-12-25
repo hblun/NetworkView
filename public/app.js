@@ -2672,7 +2672,7 @@ const init = async () => {
     updateScopeChips();
 
     try {
-      await initDuckDb(state.config);
+      await initDuckDb(state.config, duckdb, setStatus);
       populateFilters();
 
       await loadInitialDatasetView();
