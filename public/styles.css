@@ -1,0 +1,50 @@
+:root {
+  color-scheme: light;
+  --ink: #0f172a;
+  --ink-muted: #475569;
+  --surface: #ffffff;
+  --background: #f8fafc;
+  --border: #cbd5e1;
+  --shadow: rgba(15, 23, 42, 0.2);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Noto Sans", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--background);
+  min-height: 100vh;
+}
+
+button,
+select,
+input {
+  font-family: inherit;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.border-border {
+  border-color: var(--border);
+}
+
+.shadow-sm {
+  box-shadow: 0 10px 30px var(--shadow);
+}
+
+.shadow-xl {
+  box-shadow: 0 25px 40px rgba(15, 23, 42, 0.25);
+}

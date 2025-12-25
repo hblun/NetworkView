@@ -1,0 +1,566 @@
+{
+  "generatedAt": "2025-12-23T18:59:05.120328+00:00",
+  "counts": {
+    "total": 2577
+  },
+  "modes": [
+    "BUS",
+    "COACH",
+    "FERRY",
+    "RAIL"
+  ],
+  "operators": [
+    {
+      "code": "AMAC",
+      "name": "A MacDonald"
+    },
+    {
+      "code": "AKTS",
+      "name": "A+K Transport"
+    },
+    {
+      "code": "ARGT",
+      "name": "ARG Travel"
+    },
+    {
+      "code": "ABDC",
+      "name": "Aberdeenshire Council"
+    },
+    {
+      "code": "ANDL",
+      "name": "Andersons of Langholm"
+    },
+    {
+      "code": "ANRW",
+      "name": "Andrews"
+    },
+    {
+      "code": "ABCF",
+      "name": "Argyll + Bute Council Ferries"
+    },
+    {
+      "code": "R_VT",
+      "name": "Avanti West Coast"
+    },
+    {
+      "code": "AVOD",
+      "name": "Avondale Coaches"
+    },
+    {
+      "code": "ATLF",
+      "name": "BK Marine"
+    },
+    {
+      "code": "SBAY",
+      "name": "Bay Travel"
+    },
+    {
+      "code": "BORD",
+      "name": "Borders Buses"
+    },
+    {
+      "code": "BBGG",
+      "name": "Burnbrae Garage"
+    },
+    {
+      "code": "BNCM",
+      "name": "Bus Na Comhairle"
+    },
+    {
+      "code": "NCTG",
+      "name": "CT Glasgow"
+    },
+    {
+      "code": "CALM",
+      "name": "Caledonian MacBrayne"
+    },
+    {
+      "code": "R_CS",
+      "name": "Caledonian Sleeper"
+    },
+    {
+      "code": "PCVN",
+      "name": "Canavan Travel"
+    },
+    {
+      "code": "CLAS",
+      "name": "Climate Action Strathaven"
+    },
+    {
+      "code": "COLC",
+      "name": "Colchri Coaches"
+    },
+    {
+      "code": "R_XC",
+      "name": "CrossCountry"
+    },
+    {
+      "code": "DATR",
+      "name": "D A Travel"
+    },
+    {
+      "code": "DECO",
+      "name": "D+E Coaches"
+    },
+    {
+      "code": "DGCB",
+      "name": "DGC Buses"
+    },
+    {
+      "code": "DMKM",
+      "name": "DMK Motors"
+    },
+    {
+      "code": "DVRN",
+      "name": "Deveron Coaches"
+    },
+    {
+      "code": "DMCO",
+      "name": "Dochertys Midland Coaches"
+    },
+    {
+      "code": "DODT",
+      "name": "Dodds of Troon"
+    },
+    {
+      "code": "DUTR",
+      "name": "Dunnetts Transport"
+    },
+    {
+      "code": "ECBU",
+      "name": "East Coast Buses"
+    },
+    {
+      "code": "GRTL",
+      "name": "Easter Ross Coach Co"
+    },
+    {
+      "code": "YULE",
+      "name": "Elizabeth Yule"
+    },
+    {
+      "code": "EMBR",
+      "name": "Ember"
+    },
+    {
+      "code": "FABD",
+      "name": "First Aberdeen"
+    },
+    {
+      "code": "FGLA",
+      "name": "First Glasgow"
+    },
+    {
+      "code": "GALM",
+      "name": "Galson Motors"
+    },
+    {
+      "code": "GLHD",
+      "name": "Garelochhead Coaches"
+    },
+    {
+      "code": "GCTG",
+      "name": "Glenfarg CT"
+    },
+    {
+      "code": "HCLT",
+      "name": "Handicabs Lothian"
+    },
+    {
+      "code": "HANN",
+      "name": "Hannon Coach"
+    },
+    {
+      "code": "HMSV",
+      "name": "Hebridean Minibus"
+    },
+    {
+      "code": "HETR",
+      "name": "Hebridean Transport"
+    },
+    {
+      "code": "HIGH",
+      "name": "Highland Council"
+    },
+    {
+      "code": "HFRS",
+      "name": "Highland Ferries"
+    },
+    {
+      "code": "HOBS",
+      "name": "Hobson Travel"
+    },
+    {
+      "code": "HNMI",
+      "name": "Houston's Coaches"
+    },
+    {
+      "code": "HEXC",
+      "name": "Hunters Exec Coaches"
+    },
+    {
+      "code": "ISLY",
+      "name": "Islay Coaches"
+    },
+    {
+      "code": "SHDT",
+      "name": "Isle of Hoy Dev Trust"
+    },
+    {
+      "code": "JPEM",
+      "name": "J P Minicoaches"
+    },
+    {
+      "code": "HALC",
+      "name": "J+DS Halcrow"
+    },
+    {
+      "code": "JADN",
+      "name": "JA+GD Nicolson"
+    },
+    {
+      "code": "NJMT",
+      "name": "JMB Travel"
+    },
+    {
+      "code": "JURG",
+      "name": "JR Services"
+    },
+    {
+      "code": "JFJT",
+      "name": "Johnson Transport"
+    },
+    {
+      "code": "BOYD",
+      "name": "Jonathan Boyd"
+    },
+    {
+      "code": "KKTR",
+      "name": "K+K Transport"
+    },
+    {
+      "code": "LMTR",
+      "name": "Lochs Motor Transport"
+    },
+    {
+      "code": "R_GR",
+      "name": "London North Eastern Railway"
+    },
+    {
+      "code": "LOTH",
+      "name": "Lothian Buses"
+    },
+    {
+      "code": "NELB",
+      "name": "Lothian Country"
+    },
+    {
+      "code": "R_LD",
+      "name": "Lumo"
+    },
+    {
+      "code": "WAEN",
+      "name": "MacLeods Coaches"
+    },
+    {
+      "code": "MAHT",
+      "name": "Martins Car Hire"
+    },
+    {
+      "code": "MCCL",
+      "name": "McCalls Coaches"
+    },
+    {
+      "code": "MCLS",
+      "name": "McColl's Travel"
+    },
+    {
+      "code": "MESC",
+      "name": "McGill's Scotland East"
+    },
+    {
+      "code": "MCGL",
+      "name": "McGills Buses"
+    },
+    {
+      "code": "MCNN",
+      "name": "McNairn Coaches"
+    },
+    {
+      "code": "MBLB",
+      "name": "Midland Bluebird"
+    },
+    {
+      "code": "MIDL",
+      "name": "Midlothian Council"
+    },
+    {
+      "code": "MPOM",
+      "name": "Millport Motors"
+    },
+    {
+      "code": "MOFF",
+      "name": "Moffat + Williamson"
+    },
+    {
+      "code": "MCOL",
+      "name": "Moray Council"
+    },
+    {
+      "code": "MMIV",
+      "name": "Murdo MacIver"
+    },
+    {
+      "code": "NNAT",
+      "name": "North Area Transport Association"
+    },
+    {
+      "code": "NLKF",
+      "name": "Northlink Ferries"
+    },
+    {
+      "code": "OKFL",
+      "name": "Orkney Ferries"
+    },
+    {
+      "code": "PAOF",
+      "name": "P+O Ferries"
+    },
+    {
+      "code": "PVTT",
+      "name": "PVT Transfer"
+    },
+    {
+      "code": "PKOH",
+      "name": "Park's of Hamilton"
+    },
+    {
+      "code": "PENT",
+      "name": "Pentland Ferries"
+    },
+    {
+      "code": "HOGG",
+      "name": "Peter Hogg of Jedburgh"
+    },
+    {
+      "code": "PMLN",
+      "name": "Peter MacLennan"
+    },
+    {
+      "code": "PREC",
+      "name": "Premier Coaches"
+    },
+    {
+      "code": "DPCE",
+      "name": "Prentice Coaches"
+    },
+    {
+      "code": "PWTD",
+      "name": "Prentice Westwood"
+    },
+    {
+      "code": "RRSN",
+      "name": "R Robertson + Son"
+    },
+    {
+      "code": "RGJS",
+      "name": "RG Jamieson + Son"
+    },
+    {
+      "code": "SDTR",
+      "name": "SD Travel"
+    },
+    {
+      "code": "NSCR",
+      "name": "Scoraig Ferry"
+    },
+    {
+      "code": "R_SR",
+      "name": "ScotRail"
+    },
+    {
+      "code": "NSBC",
+      "name": "Scottish Borders Council"
+    },
+    {
+      "code": "SCLK",
+      "name": "Scottish Citylink"
+    },
+    {
+      "code": "SCUL",
+      "name": "Scottish Citylink + Ulst"
+    },
+    {
+      "code": "SHET",
+      "name": "Shetland Ferries"
+    },
+    {
+      "code": "SHIL",
+      "name": "Shiel Buses"
+    },
+    {
+      "code": "SHOT",
+      "name": "Shorts Travel"
+    },
+    {
+      "code": "SHUT",
+      "name": "Shuttle Buses"
+    },
+    {
+      "code": "SMTH",
+      "name": "Smith + Sons"
+    },
+    {
+      "code": "SACT",
+      "name": "South Ayrshire CT"
+    },
+    {
+      "code": "SHRS",
+      "name": "South Harris Coaches"
+    },
+    {
+      "code": "SCCU",
+      "name": "Stagecoach Cumbria"
+    },
+    {
+      "code": "SCFI",
+      "name": "Stagecoach East Scotland"
+    },
+    {
+      "code": "SBLB",
+      "name": "Stagecoach North Scotland"
+    },
+    {
+      "code": "STWS",
+      "name": "Stagecoach West Scotland"
+    },
+    {
+      "code": "SLFY",
+      "name": "Stenaline"
+    },
+    {
+      "code": "STIR",
+      "name": "Stirling Council"
+    },
+    {
+      "code": "STUR",
+      "name": "Stuarts Coaches"
+    },
+    {
+      "code": "SWGG",
+      "name": "Sweeneys Garage"
+    },
+    {
+      "code": "TXIS",
+      "name": "Taxi Service"
+    },
+    {
+      "code": "TELF",
+      "name": "Telfords Coaches"
+    },
+    {
+      "code": "NNIH",
+      "name": "The Durness Bus"
+    },
+    {
+      "code": "STTL",
+      "name": "Todds Travel"
+    },
+    {
+      "code": "R_TP",
+      "name": "TransPennine Express"
+    },
+    {
+      "code": "STFT",
+      "name": "Transport for Tongue"
+    },
+    {
+      "code": "UNTD",
+      "name": "United Coaches"
+    },
+    {
+      "code": "BWGG",
+      "name": "W Brownrigg"
+    },
+    {
+      "code": "WMVM",
+      "name": "WMV Motor Hirer"
+    },
+    {
+      "code": "WSTS",
+      "name": "Wastbus"
+    },
+    {
+      "code": "WTRM",
+      "name": "Watermill Coaches"
+    },
+    {
+      "code": "WCMO",
+      "name": "West Coast Motors"
+    },
+    {
+      "code": "WESB",
+      "name": "Westerbus"
+    },
+    {
+      "code": "WFRL",
+      "name": "Western Ferries"
+    },
+    {
+      "code": "WICS",
+      "name": "Western Isles Cruises"
+    },
+    {
+      "code": "WHTL",
+      "name": "Whitelaws Coaches"
+    },
+    {
+      "code": "WANN",
+      "name": "Wilma Ann Nicolson"
+    },
+    {
+      "code": "NCRC",
+      "name": "Wilsons Buses"
+    },
+    {
+      "code": "WRHU",
+      "name": "Wilsons of Rhu"
+    },
+    {
+      "code": "WSHT",
+      "name": "Wishart"
+    },
+    {
+      "code": "TRDU",
+      "name": "Xplore"
+    }
+  ],
+  "bounds": {
+    "minLon": -7.543470413173138,
+    "minLat": 50.121674009082085,
+    "maxLon": -0.12292592431639074,
+    "maxLat": 60.79915184966555
+  },
+  "bbox": [
+    -7.543470413173138,
+    50.121674009082085,
+    -0.12292592431639074,
+    60.79915184966555
+  ],
+  "lastUpdated": "2025-12-23T18:42:02.485433+00:00",
+  "source": {
+    "file": "scotland-bus-routes.geojson",
+    "bytes": 260996616
+  },
+  "files": {
+    "geojson": {
+      "bytes": 260996616
+    },
+    "parquet": {
+      "bytes": 44550792
+    },
+    "pmtiles": {
+      "bytes": 4581727
+    }
+  }
+}

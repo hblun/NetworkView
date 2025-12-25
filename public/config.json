@@ -1,0 +1,17 @@
+{
+  "dataBaseUrl": "https://pub-68f801c9ef774a729dd19c234b46593b.r2.dev",
+  "pmtilesFile": "routes.pmtiles",
+  "parquetFile": "routes.parquet",
+  "metadataFile": "metadata.json",
+  "apiDocsUrl": "",
+  "vectorLayer": "scotlandbusroutes",
+  "duckdbBaseUrl": "duckdb",
+  "basemapStyle": "https://demotiles.maplibre.org/style.json",
+  "defaultView": {
+    "center": [
+      -3.5,
+      56.2
+    ],
+    "zoom": 6.2
+  }
+}

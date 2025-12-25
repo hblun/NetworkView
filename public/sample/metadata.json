@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2025-12-23T00:12:42.057195+00:00",
+  "counts": {
+    "total": 3
+  },
+  "modes": [
+    "BUS",
+    "COACH",
+    "RAIL"
+  ],
+  "operators": [
+    {
+      "code": "SCBS",
+      "name": "Sample Bus"
+    },
+    {
+      "code": "SCCO",
+      "name": "Sample Coach"
+    },
+    {
+      "code": "SCSR",
+      "name": "Sample Rail"
+    }
+  ]
+}

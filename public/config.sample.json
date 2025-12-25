@@ -1,0 +1,22 @@
+{
+  "dataBaseUrl": "sample",
+  "pmtilesFile": "",
+  "parquetFile": "routes.parquet",
+  "metadataFile": "metadata.json",
+  "vectorLayer": "routes",
+  "duckdbBaseUrl": "duckdb",
+  "basemapStyle": "https://raw.githubusercontent.com/go2garret/maps/main/src/assets/json/openStreetMap.json",
+  "defaultView": {
+    "center": [-3.5, 56.2],
+    "zoom": 6.2
+  },
+  "ui": {
+    "title": "Trapeze Routes Explorer",
+    "header": {
+      "kicker": "Trapeze routes",
+      "heading": "Routes Explorer",
+      "badge": "Static + Filters"
+    },
+    "footer": ""
+  }
+}
