@@ -144,8 +144,8 @@ export const measureRowHeight = (tableBody, renderCallback) => {
  * @param {string} queryKey - Current query key for staleness checking
  * @returns {Promise<void>}
  */
-export const fetchTablePage = async (offset, pageSize, queryKey) => {
-  const where = buildWhere();
+export const fetchTablePage = async (offset, pageSize, queryKey, filters = {}) => {
+  const where = buildWhere(filters);
   const cols = getTableColumns().map((c) => c.key);
   const selectList = cols.length ? cols.map(quoteIdentifier).join(", ") : "*";
   const order = state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "1";
@@ -191,7 +191,7 @@ export const getTableRowAtIndex = (index) => {
  * @param {Function} updateEvidence - Evidence update callback
  * @param {Function} renderCallback - Render callback
  */
-export const ensureTablePageFor = (index, setStatus, updateEvidence, renderCallback) => {
+export const ensureTablePageFor = (index, setStatus, updateEvidence, renderCallback, filters = {}) => {
   if (!state.conn || !state.tablePaging.enabled) {
     return;
   }
@@ -215,9 +215,11 @@ export const ensureTablePageFor = (index, setStatus, updateEvidence, renderCallb
   const nextOffset = Math.max(0, Math.floor(cappedIndex / pageSize) * pageSize);
   const queryKey = state.tablePaging.queryKey;
   state.tablePaging.loading = true;
-  setStatus("Loading table rows...");
+  if (setStatus) {
+    setStatus("Loading table rows...");
+  }
 
-  fetchTablePage(nextOffset, pageSize, queryKey)
+  fetchTablePage(nextOffset, pageSize, queryKey, filters)
     .catch((error) => {
       setStatus(`Table load failed: ${error.message}`);
       state.tablePaging.rows = [];
@@ -240,7 +242,7 @@ export const ensureTablePageFor = (index, setStatus, updateEvidence, renderCallb
  * @param {Function} setStatus - Status update callback
  * @param {Function} updateEvidence - Evidence update callback
  */
-export const renderTable = (elements, getSelectedServiceId, setStatus, updateEvidence) => {
+export const renderTable = (elements, getSelectedServiceId, setStatus, updateEvidence, filters = {}) => {
   if (!elements.dataTableBody || !elements.dataTableEmpty) {
     return;
   }
@@ -272,7 +274,7 @@ export const renderTable = (elements, getSelectedServiceId, setStatus, updateEvi
   state.tableVirtual.end = end;
 
   if (paging) {
-    ensureTablePageFor(start, setStatus, updateEvidence, () => renderTable(elements, getSelectedServiceId, setStatus, updateEvidence));
+    ensureTablePageFor(start, setStatus, updateEvidence, () => renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, filters), filters);
   }
 
   const topPad = start * rowHeight;
@@ -321,7 +323,9 @@ export const renderTable = (elements, getSelectedServiceId, setStatus, updateEvi
 
   clearElement(elements.dataTableBody);
   elements.dataTableBody.appendChild(fragment);
-  window.requestAnimationFrame(() => measureRowHeight(elements.dataTableBody, () => renderTable(elements, getSelectedServiceId, setStatus, updateEvidence)));
+  window.requestAnimationFrame(() =>
+    measureRowHeight(elements.dataTableBody, () => renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, filters))
+  );
 };
 
 /**
@@ -330,8 +334,8 @@ export const renderTable = (elements, getSelectedServiceId, setStatus, updateEvi
  * @param {number} offset - Row offset
  * @returns {Promise<Array>} Array of row objects
  */
-export const queryTable = async (limit = 250, offset = 0) => {
-  const where = buildWhere();
+export const queryTable = async (limit = 250, offset = 0, filters = {}) => {
+  const where = buildWhere(filters);
   const cols = getTableColumns().map((c) => c.key);
   const selectList = cols.length ? cols.map(quoteIdentifier).join(", ") : "*";
   const query = `

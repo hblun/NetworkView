@@ -21,6 +21,7 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - Phase 1 progress: regenerated `public/routes.parquet` and `public/routes.pmtiles` with `la_code/la_name` and `rpt_code/rpt_name` attributes computed via max-intersection-length against LA polygons; also generated `public/operators.parquet` (distinct operator codes/names). Routes that failed the intersection (e.g., ferry services like `SF8 Shetland - Foula` / `CM20 Castlebay - Oban`) now fall back to nearest-LA assignment.
 - Phase 2 note: time band filter UI now supports a “coming soon” state; current `public/routes.parquet` schema lacks timetable flag columns, so the filter remains disabled until time-band flags are generated.
 - DuckDB-WASM range reads can fail against local servers without robust range support; local dev now prefers buffering `routes.parquet` into memory (`parquetPreferBuffer`) to avoid “file too small” errors.
+- Phase 3 integration check: several module helpers now require explicit UI parameters (operators, time bands, service search); missing argument wiring in `public/app.js`, plus missing `filters` propagation in table paging and export handlers, can silently disable filters or crash exports unless fixed.
 
 
 ## Architecture overview

@@ -40,8 +40,8 @@ export const getCsvColumns = () => {
  * @param {number} limit - Maximum number of features to export
  * @returns {Promise<Object>} GeoJSON FeatureCollection
  */
-export const queryGeoJson = async (limit = 50000) => {
-  const where = buildWhere();
+export const queryGeoJson = async (limit = 50000, filters = {}) => {
+  const where = buildWhere(filters);
 
   if (state.geojsonField) {
     // Approach 1: geojson column exists
@@ -125,8 +125,8 @@ export const queryGeoJson = async (limit = 50000) => {
  * @param {number} limit - Maximum number of rows to export
  * @returns {Promise<string>} CSV string
  */
-export const queryCsv = async (limit = 50000) => {
-  const where = buildWhere();
+export const queryCsv = async (limit = 50000, filters = {}) => {
+  const where = buildWhere(filters);
   const columns = getCsvColumns();
   const selectList = columns.length ? columns.map(quoteIdentifier).join(", ") : "*";
   const query = `
@@ -198,7 +198,7 @@ export const confirmLargeExport = async (count, format) => {
  * @param {Function} logAction - Action logging callback
  * @param {Function} logEvent - Event logging callback
  */
-export const onDownloadGeojson = async (setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent) => {
+export const onDownloadGeojson = async (setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getFilters) => {
   logAction("GeoJSON export requested.");
   if (!state.geojsonField && !state.spatialReady) {
     setStatus("GeoJSON export requires spatial extension or geojson column.");
@@ -227,7 +227,8 @@ export const onDownloadGeojson = async (setStatus, toggleActionButtons, validate
     if (countNumber > 50000) {
       setStatus("Large export capped at 50,000 rows. Narrow filters for full export.");
     }
-    const geojson = await queryGeoJson(limit || 50000);
+    const filters = typeof getFilters === "function" ? getFilters() : getFilters || {};
+    const geojson = await queryGeoJson(limit || 50000, filters);
     downloadFile(JSON.stringify(geojson), "routes-filtered.geojson", "application/json");
     setStatus("GeoJSON download ready.");
   } catch (error) {
@@ -247,7 +248,7 @@ export const onDownloadGeojson = async (setStatus, toggleActionButtons, validate
  * @param {Function} logAction - Action logging callback
  * @param {Function} logEvent - Event logging callback
  */
-export const onDownloadCsv = async (setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent) => {
+export const onDownloadCsv = async (setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getFilters) => {
   logAction("CSV export requested.");
   const validation = validateFilters();
   if (validation) {
@@ -268,7 +269,8 @@ export const onDownloadCsv = async (setStatus, toggleActionButtons, validateFilt
     if (countNumber > 50000) {
       setStatus("Large export capped at 50,000 rows. Narrow filters for full export.");
     }
-    const csv = await queryCsv(limit || 50000);
+    const filters = typeof getFilters === "function" ? getFilters() : getFilters || {};
+    const csv = await queryCsv(limit || 50000, filters);
     downloadFile(csv, "routes-filtered.csv", "text/csv");
     setStatus("CSV download ready.");
   } catch (error) {

@@ -90,9 +90,9 @@ const elements = {
 // Helper function to gather current filter state from UI
 const getCurrentFilters = () => ({
   modes: getSelectedValues(elements.modeFilter),
-  operators: getSelectedOperators(),
-  timeBands: getSelectedTimeBands(),
-  serviceSearch: getServiceSearchValue(),
+  operators: getSelectedOperators(elements.operatorFilter),
+  timeBands: getSelectedTimeBands(elements.timeBandFilter),
+  serviceSearch: getServiceSearchValue(elements.serviceSearch),
   laValue: getSelectedValue(elements.laFilter),
   rptValue: getSelectedValue(elements.rptFilter)
 });
@@ -978,7 +978,7 @@ const clearSelection = () => {
   state.selectedFeatureKey = null;
   renderSelection(null);
   syncSelectedLayer();
-  renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+  renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
   renderLegend();
   logAction("Selection cleared.");
 };
@@ -1046,7 +1046,7 @@ const showGeojsonOnMap = (geojson) => {
         return;
       }
       setSelection(feature, getFeatureKey(feature));
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
       // best-effort highlight by serviceId if available
       const serviceId = getSelectedServiceId();
       const serviceKey = state.tileFields.serviceId || "serviceId";
@@ -1067,15 +1067,15 @@ const updateScopeChips = () => {
 
   const chips = [];
   const modes = getSelectedValues(elements.modeFilter).filter((m) => m !== NONE_OPTION_VALUE);
-  const operators = getSelectedOperators()
+  const operators = getSelectedOperators(elements.operatorFilter)
     .map((o) => o.value)
     .filter((o) => o && o !== NONE_OPTION_VALUE);
-  const timeBands = getSelectedTimeBands().filter((band) => band);
+  const timeBands = getSelectedTimeBands(elements.timeBandFilter).filter((band) => band);
   const laSelection = getSelectedValue(elements.laFilter);
   const rptSelection = getSelectedValue(elements.rptFilter);
   const laLabel = elements.laFilter?.selectedOptions?.[0]?.textContent || "";
   const rptLabel = elements.rptFilter?.selectedOptions?.[0]?.textContent || "";
-  const search = getServiceSearchValue();
+  const search = getServiceSearchValue(elements.serviceSearch);
   const bbox = elements.bboxFilter?.checked ? "Viewport" : "";
 
   if (modes.length) chips.push({ key: "modes", icon: "directions_bus", label: `Mode: ${modes.join(", ")}` });
@@ -1236,11 +1236,11 @@ const onApplyFilters = async (options = {}) => {
   setStatus("Applying filters...");
   logAction("Filters applied.", {
     modes: getSelectedValues(elements.modeFilter),
-    operators: getSelectedOperators().map((item) => item.value),
-    timeBands: getSelectedTimeBands(),
+    operators: getSelectedOperators(elements.operatorFilter).map((item) => item.value),
+    timeBands: getSelectedTimeBands(elements.timeBandFilter),
     la: getSelectedValue(elements.laFilter),
     rpt: getSelectedValue(elements.rptFilter),
-    search: getServiceSearchValue(),
+    search: getServiceSearchValue(elements.serviceSearch),
     bbox: elements.bboxFilter?.checked
   });
 
@@ -1259,7 +1259,7 @@ const onApplyFilters = async (options = {}) => {
 
     if (!state.conn) {
       setPreview("Filters applied to map. DuckDB is unavailable, so table/stats/exports are disabled.");
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
       return;
     }
 
@@ -1283,7 +1283,7 @@ const onApplyFilters = async (options = {}) => {
       setStatus("No routes matched the current filters.");
       state.tableRows = [];
       state.tablePaging.rows = [];
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
     } else {
       setStatus("Filters applied. Table/stats updated.");
     }
@@ -1291,11 +1291,11 @@ const onApplyFilters = async (options = {}) => {
     await updateStats(countNumber);
     // Paging mode: load first page; non-paging mode: use full tableRows.
     if (state.tablePaging.enabled) {
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
-      ensureTablePageFor(0);
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+      ensureTablePageFor(0, setStatus, updateEvidence, null, getCurrentFilters());
     } else {
-      state.tableRows = await queryTable(state.tableLimit, 0);
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      state.tableRows = await queryTable(state.tableLimit, 0, getCurrentFilters());
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
     }
     updateEvidence();
   } catch (error) {
@@ -1519,8 +1519,8 @@ const loadInitialDatasetView = async () => {
     state.tablePaging.queryKey = getFilterKey();
     state.tablePaging.offset = 0;
     state.tablePaging.rows = [];
-    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
-    ensureTablePageFor(0);
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+    ensureTablePageFor(0, setStatus, updateEvidence, null, getCurrentFilters());
 
     await updateStats(countNumber);
     updateEvidence();
@@ -1585,7 +1585,7 @@ const onLoadSample = async () => {
     state.tableRows = geojson.features
       .slice(0, state.tableLimit)
       .map((feature) => normalizePreviewProps(feature.properties || {}));
-    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
     updateEvidence();
 
     setStatsHint("GeoJSON preview loaded. Use DuckDB for full stats/exports when available.");
@@ -2148,7 +2148,7 @@ const initMap = (config) => {
       }
       setSelection(feature, getFeatureKey(feature));
       syncSelectedLayer();
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
     });
 
     map.on("mouseenter", "routes-line", () => {
@@ -2270,11 +2270,11 @@ const applyMapFilters = () => {
     if (!filter && hasAttributeFilters(filters)) {
       const warningKey = JSON.stringify({
         modes: getSelectedValues(elements.modeFilter),
-        operators: getSelectedOperators().map((item) => item.value),
-        timeBands: getSelectedTimeBands(),
+        operators: getSelectedOperators(elements.operatorFilter).map((item) => item.value),
+        timeBands: getSelectedTimeBands(elements.timeBandFilter),
         la: getSelectedValue(elements.laFilter),
         rpt: getSelectedValue(elements.rptFilter),
-        search: getServiceSearchValue()
+        search: getServiceSearchValue(elements.serviceSearch)
       });
       if (state.lastMapFilterWarningKey !== warningKey) {
         state.lastMapFilterWarningKey = warningKey;
@@ -2431,11 +2431,11 @@ const validateFilters = () => {
   if (modes.length && !state.modeField) {
     return "Mode filter unavailable: no mode column detected in dataset.";
   }
-  const operators = getSelectedOperators();
+  const operators = getSelectedOperators(elements.operatorFilter);
   if (operators.length && !state.operatorFields.length) {
     return "Operator filter unavailable: no operator columns detected in dataset.";
   }
-  const timeBands = getSelectedTimeBands();
+  const timeBands = getSelectedTimeBands(elements.timeBandFilter);
   if (timeBands.length && (!state.timeBandFields || !Object.keys(state.timeBandFields).length)) {
     return "Time band filter unavailable: no timetable flag columns detected in dataset.";
   }
@@ -2625,7 +2625,7 @@ const init = async () => {
     }
     initTabs();
     resetStats();
-    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
     if (!state.tableEventsBound && elements.dataTableBody) {
       state.tableEventsBound = true;
       elements.dataTableBody.addEventListener("click", (event) => {
@@ -2637,7 +2637,7 @@ const init = async () => {
         const row = getTableRowAtIndex(Number(idx));
         if (!row) {
           if (state.conn && state.tablePaging.enabled) {
-            ensureTablePageFor(Number(idx));
+            ensureTablePageFor(Number(idx), setStatus, updateEvidence, null, getCurrentFilters());
             setStatus("Loading row... click again.");
           }
           return;
@@ -2645,7 +2645,7 @@ const init = async () => {
         const rowServiceId = row.serviceId ?? "";
         setSelection({ properties: row }, `serviceId:${rowServiceId}`);
         syncSelectedLayer();
-        renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+        renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
       });
     }
     if (elements.dataTableScroll) {
@@ -2654,7 +2654,7 @@ const init = async () => {
         if (timer) window.clearTimeout(timer);
         timer = window.setTimeout(() => {
           timer = null;
-          renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+          renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
         }, 16);
       });
     }
@@ -2682,7 +2682,7 @@ const init = async () => {
       elements.bboxFilter.checked = false;
       elements.bboxFilter.disabled = true;
       state.tableRows = [];
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
       setPreview("Map ready. DuckDB failed to start, so table/stats/exports are disabled.");
       setStatus(duckdbError.message);
       if (state.config?.geojsonFile) {
@@ -2691,7 +2691,7 @@ const init = async () => {
           state.lastPreviewGeojson = geojson;
           updateOverlay(geojson);
           state.tableRows = geojson.features.slice(0, state.tableLimit).map((feature) => feature.properties || {});
-          renderTable(elements, getSelectedServiceId, setStatus, updateEvidence);
+          renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
           setPreview(`GeoJSON preview: ${formatCount(geojson.features.length)} routes (preview only).`);
           setStatus("DuckDB unavailable; using GeoJSON preview for table/selection.");
         } catch (previewError) {
@@ -2706,10 +2706,16 @@ const init = async () => {
       elements.clearAll.addEventListener("click", onClearFilters);
     }
     elements.loadSample.addEventListener("click", onLoadSample);
-    elements.downloadGeojson.addEventListener("click", onDownloadGeojson);
-    elements.downloadCsv.addEventListener("click", onDownloadCsv);
+    elements.downloadGeojson.addEventListener("click", () =>
+      onDownloadGeojson(setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
+    );
+    elements.downloadCsv.addEventListener("click", () =>
+      onDownloadCsv(setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
+    );
     if (elements.exportCsvTable) {
-      elements.exportCsvTable.addEventListener("click", onDownloadCsv);
+      elements.exportCsvTable.addEventListener("click", () =>
+        onDownloadCsv(setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
+      );
     }
     if (elements.serviceSearch) {
       let timer = null;
@@ -2730,7 +2736,7 @@ const init = async () => {
           onApplyFilters();
         }, 350);
         // Also update suggestions as the user types.
-        const value = getServiceSearchValue();
+        const value = getServiceSearchValue(elements.serviceSearch);
         if (value && state.conn) {
           queryServiceSuggestions(value).then((rows) => {
             const items = rows.map((row) => ({
@@ -2750,7 +2756,7 @@ const init = async () => {
         }
       });
       elements.serviceSearch.addEventListener("focus", () => {
-        const value = getServiceSearchValue();
+        const value = getServiceSearchValue(elements.serviceSearch);
         if (value && state.conn) {
           queryServiceSuggestions(value).then((rows) => {
             const items = rows.map((row) => ({
@@ -2937,9 +2943,9 @@ const init = async () => {
           map: mapState,
           filters: {
             modes: getSelectedValues(elements.modeFilter),
-            operators: getSelectedOperators(),
+            operators: getSelectedOperators(elements.operatorFilter),
             bbox: Boolean(elements.bboxFilter?.checked),
-            serviceSearch: getServiceSearchValue(),
+            serviceSearch: getServiceSearchValue(elements.serviceSearch),
             colorByOperator: Boolean(elements.colorByOperator?.checked)
           },
           selection: state.selectedFeature ? { serviceId: getSelectedServiceId() } : null
