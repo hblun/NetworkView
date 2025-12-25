@@ -219,8 +219,12 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
     typeof window !== "undefined" &&
     (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost");
   const preferBuffer = Boolean(config.parquetPreferBuffer);
+  const effectivePreferBuffer = preferBuffer || isLocalHost;
+  if (!preferBuffer && isLocalHost) {
+    setStatus("Local dev: enabling parquet buffering to avoid Range issues.");
+  }
 
-  if (!preferBuffer) {
+  if (!effectivePreferBuffer) {
     await state.db.registerFileURL("routes.parquet", parquetUrl);
   }
 
@@ -237,7 +241,7 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
   };
 
   try {
-    if (preferBuffer) {
+    if (effectivePreferBuffer) {
       throw new Error("Parquet buffer preferred");
     }
     await describeParquet();
@@ -250,7 +254,7 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
     }
 
     const maxBufferMb = config.parquetBufferMaxMb ?? 200;
-    let canBuffer = preferBuffer || isTooSmall || isLocalHost;
+    let canBuffer = effectivePreferBuffer || isTooSmall || isLocalHost;
     let rangeUnsupported = false;
     let contentLength = 0;
 
@@ -277,7 +281,7 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
         // Ignore if not registered yet
       }
 
-      if (preferBuffer || isLocalHost) {
+      if (effectivePreferBuffer || isLocalHost) {
         setStatus("Downloading routes parquet for local access...");
       }
 
