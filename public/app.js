@@ -79,7 +79,7 @@ const elements = {
 
 // Duplicate constants removed - now imported from ./js/config/constants.js:
 // - ROUTE_LINE_WIDTH, SELECTED_LINE_WIDTH, TIME_BAND_OPTIONS
-// - DEFAULT_ROUTE_COLOR, PREVIEW_ROUTE_COLOR, SELECTED_ROUTE_COLOR
+// - COLORS.DEFAULT_ROUTE, COLORS.PREVIEW_ROUTE, COLORS.SELECTED_ROUTE
 
 // Duplicate SQL utils removed - now imported from ./js/utils/sql.js:
 // - escapeSql, quoteIdentifier, buildInClause
@@ -520,21 +520,21 @@ const renderLegend = () => {
   if (getLayerVisible(map, "routes-line")) {
     const colorMode = state.colorByOperator ? "Operator" : "Default";
     items.push({
-      swatch: `<span class="w-3 h-1 rounded-full" style="background:${DEFAULT_ROUTE_COLOR}"></span>`,
+      swatch: `<span class="w-3 h-1 rounded-full" style="background:${COLORS.DEFAULT_ROUTE}"></span>`,
       label: `Route lines (${colorMode})`
     });
   }
 
   if (getLayerVisible(map, "routes-preview-line")) {
     items.push({
-      swatch: `<span class="w-3 h-1 rounded-full" style="background:${PREVIEW_ROUTE_COLOR}"></span>`,
+      swatch: `<span class="w-3 h-1 rounded-full" style="background:${COLORS.PREVIEW_ROUTE}"></span>`,
       label: "GeoJSON preview"
     });
   }
 
   if (state.selectedFeature) {
     items.push({
-      swatch: `<span class="w-3 h-1 rounded-full" style="background:${SELECTED_ROUTE_COLOR}"></span>`,
+      swatch: `<span class="w-3 h-1 rounded-full" style="background:${COLORS.SELECTED_ROUTE}"></span>`,
       label: "Selected route"
     });
   }
@@ -561,6 +561,47 @@ const updateZoomButtons = () => {
   elements.zoomIn.disabled = zoom >= maxZoom - 1e-6;
   elements.zoomOut.classList.toggle("opacity-50", elements.zoomOut.disabled);
   elements.zoomIn.classList.toggle("opacity-50", elements.zoomIn.disabled);
+};
+
+const updateEvidence = () => {
+  if (!elements.evidenceLeft || !elements.evidenceRight) {
+    return;
+  }
+  const meta = state.metadata || {};
+  const generatedAt = meta.generatedAt || meta.lastUpdated || "Unknown";
+  const total = meta.counts?.total ?? meta.total ?? null;
+  const where = buildWhere();
+  const hasFilters = Boolean(where);
+  const hint = hasFilters ? "Filtered view" : "Full dataset";
+
+  elements.evidenceLeft.innerHTML = "";
+  const selectionCount = state.lastQuery?.count ?? null;
+  const browseMax = state.tablePaging?.enabled ? state.tablePaging.browseMax : state.tableLimit;
+  const limitNote =
+    selectionCount !== null && selectionCount !== undefined && selectionCount > browseMax
+      ? `Browsing capped at ${formatCount(browseMax)}`
+      : selectionCount !== null && selectionCount !== undefined && selectionCount > state.tableLimit
+        ? `Table shows first ${formatCount(state.tableLimit)}`
+        : null;
+  const leftParts = [
+    `Scope: <strong class="font-semibold">${hint}</strong>`,
+    total ? `Dataset rows: <strong class="font-semibold">${formatCount(total)}</strong>` : null,
+    selectionCount !== null && selectionCount !== undefined
+      ? `Selection: <strong class="font-semibold">${formatCount(selectionCount)}</strong>`
+      : null,
+    limitNote ? `Limit: <strong class="font-semibold">${limitNote}</strong>` : null,
+    `Updated: <strong class="font-semibold">${generatedAt}</strong>`
+  ].filter(Boolean);
+  elements.evidenceLeft.innerHTML = leftParts.map((p) => `<span>${p}</span>`).join("");
+
+  const map = state.map;
+  const center = map ? map.getCenter() : null;
+  const zoom = map ? map.getZoom() : null;
+  const rightParts = [
+    center ? `Lat: ${center.lat.toFixed(4)}, Lon: ${center.lng.toFixed(4)}` : null,
+    zoom !== null ? `Zoom: ${zoom.toFixed(2)}` : null
+  ].filter(Boolean);
+  elements.evidenceRight.textContent = rightParts.join(" | ");
 };
 
 // fitMapToBbox removed - now imported from ./js/map/utils.js
@@ -741,7 +782,7 @@ const buildOperatorColorExpression = () => {
     }
   });
 
-  match.push(DEFAULT_ROUTE_COLOR);
+  match.push(COLORS.DEFAULT_ROUTE);
   return match;
 };
 
@@ -755,10 +796,10 @@ const applyRouteColorMode = () => {
     if (expr) {
       map.setPaintProperty("routes-line", "line-color", expr);
     } else {
-      map.setPaintProperty("routes-line", "line-color", DEFAULT_ROUTE_COLOR);
+      map.setPaintProperty("routes-line", "line-color", COLORS.DEFAULT_ROUTE);
     }
   } else {
-    map.setPaintProperty("routes-line", "line-color", DEFAULT_ROUTE_COLOR);
+    map.setPaintProperty("routes-line", "line-color", COLORS.DEFAULT_ROUTE);
   }
   renderLegend();
 };
