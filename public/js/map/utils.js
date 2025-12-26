@@ -158,7 +158,7 @@ export const getFeatureKey = (feature, fallback = "") => {
  * @returns {Array|null} MapLibre filter expression or null
  */
 export const buildMapFilter = (filters, tileFields = {}) => {
-  const { modes = [], operators = [], laValue = "", rptValue = "" } = filters;
+  const { modes = [], operators = [], laValue = "", rptValue = "", serviceIds = [], serviceIdsActive = false } = filters;
 
   const expressions = ["all"];
 
@@ -248,6 +248,18 @@ export const buildMapFilter = (filters, tileFields = {}) => {
 
     if (rptExprs.length > 0) {
       expressions.push(rptExprs.length === 1 ? rptExprs[0] : ["any", ...rptExprs]);
+    }
+  }
+
+  // Service ID filter (from spatial queries)
+  if (serviceIdsActive && tileFields.serviceId) {
+    if (serviceIds.length === 0) {
+      // No matches - show nothing
+      expressions.push(["==", ["get", "__never__"], "__never__"]);
+    } else {
+      // Match specific service IDs
+      const stringIds = serviceIds.map(id => String(id));
+      expressions.push(["in", ["to-string", ["get", tileFields.serviceId]], ["literal", stringIds]]);
     }
   }
 

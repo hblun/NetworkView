@@ -49,6 +49,7 @@ export const findColumn = (columns, candidates) => {
  * @param {string[]} columns - Available column names
  */
 export const detectSchemaFields = (columns) => {
+  const serviceIdCandidates = ["serviceId", "service_id", "id"];
   const modeCandidates = ["mode", "transport_mode", "Mode"];
   const operatorCandidates = ["operatorCode", "operatorName", "operator"];
   const laCodeCandidates = ["la_code", "laCode", "la"];
@@ -60,6 +61,7 @@ export const detectSchemaFields = (columns) => {
   const rptCodesCandidates = ["rpt_codes", "rptCodes", "rpt_list"];
   const rptNamesCandidates = ["rpt_names", "rptNames"];
 
+  state.serviceIdField = findColumn(columns, serviceIdCandidates);
   state.modeField = findColumn(columns, modeCandidates);
   state.operatorFields = operatorCandidates.map((name) => findColumn(columns, [name])).filter(Boolean);
   state.laField = findColumn(columns, laCodeCandidates);
@@ -101,6 +103,12 @@ export const detectSchemaFields = (columns) => {
   state.bboxReady = Boolean(
     bboxFields.minx && bboxFields.miny && bboxFields.maxx && bboxFields.maxy
   );
+
+  console.log("[DuckDB] Bbox field detection:", {
+    columns: columns,
+    bboxFields: bboxFields,
+    bboxReady: state.bboxReady
+  });
 };
 
 /**
@@ -200,21 +208,22 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
   // Try to load spatial extension
   let spatialReady = false;
   try {
-    try {
-      await conn.query("SET home_directory='/'");
-      await conn.query("SET extension_directory='/'");
-    } catch (homeError) {
-      // Non-fatal; continue with default directories.
-    }
+    // Try direct LOAD first (extension may be cached)
     await conn.query("LOAD spatial");
     spatialReady = true;
+    console.log("[DuckDB] Spatial extension loaded successfully (cached)");
   } catch (loadError) {
+    // If LOAD fails, try INSTALL then LOAD
     try {
+      console.log("[DuckDB] Installing spatial extension...");
       await conn.query("INSTALL spatial");
       await conn.query("LOAD spatial");
       spatialReady = true;
-    } catch (error) {
+      console.log("[DuckDB] Spatial extension installed and loaded successfully");
+    } catch (installError) {
       spatialReady = false;
+      console.warn("[DuckDB] Spatial extension unavailable:", installError?.message || String(installError));
+      console.warn("[DuckDB] Using bbox fallback for spatial queries");
     }
   }
   setSpatialReady(spatialReady);
@@ -242,6 +251,34 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
 
     const columnLookup = new Map(columns.map((name) => [String(name).toLowerCase(), name]));
     state.geometryField = columnLookup.get("geometry") || columnLookup.get("geom") || "";
+
+    // If we have geometry column but no bbox columns, generate bbox columns
+    if (state.geometryField && !state.bboxReady && spatialReady) {
+      try {
+        console.log("[DuckDB] Generating bbox columns from geometry...");
+        await conn.query(`
+          CREATE OR REPLACE VIEW routes_with_bbox AS
+          SELECT *,
+            ST_XMin("${state.geometryField}") as bbox_minx,
+            ST_YMin("${state.geometryField}") as bbox_miny,
+            ST_XMax("${state.geometryField}") as bbox_maxx,
+            ST_YMax("${state.geometryField}") as bbox_maxy
+          FROM read_parquet('routes.parquet')
+        `);
+
+        // Update state to use the view and bbox columns
+        state.bboxFields = {
+          minx: "bbox_minx",
+          miny: "bbox_miny",
+          maxx: "bbox_maxx",
+          maxy: "bbox_maxy"
+        };
+        state.bboxReady = true;
+        console.log("[DuckDB] Bbox columns generated successfully");
+      } catch (err) {
+        console.warn("[DuckDB] Failed to generate bbox columns:", err.message);
+      }
+    }
 
     return columns;
   };

@@ -15,6 +15,14 @@ export const state = {
   db: null,
   conn: null,
   spatialReady: false,
+  spatialBuilder: null,
+  spatialMatchSet: null,
+  spatialQuery: {
+    active: false,
+    serviceIds: [],
+    point: null,
+    pickingPoint: false
+  },
   duckdbReady: false,
   geometryField: "geometry",
   geojsonField: "",
@@ -79,6 +87,7 @@ export const state = {
     queryKey: ""
   },
   pendingPreviewGeojson: null,
+  serviceIdField: "",
   boundaryLayers: {
     la: null,
     rpt: null
@@ -134,6 +143,66 @@ export const setMetadata = (metadata) => {
  */
 export const setSpatialReady = (ready) => {
   state.spatialReady = Boolean(ready);
+};
+
+/**
+ * Sets spatial logic builder reference
+ * @param {object|null} builder - Builder instance
+ */
+export const setSpatialBuilder = (builder) => {
+  state.spatialBuilder = builder || null;
+};
+
+/**
+ * Sets spatial match set (service IDs)
+ * @param {Set<string>|null} matchSet - Match set of service IDs
+ */
+export const setSpatialMatchSet = (matchSet) => {
+  if (matchSet === null || matchSet === undefined) {
+    state.spatialMatchSet = null;
+    state.spatialQuery = {
+      ...state.spatialQuery,
+      active: false,
+      serviceIds: []
+    };
+    return;
+  }
+  const ids = Array.from(matchSet).map((value) => String(value));
+  state.spatialMatchSet = new Set(ids);
+  state.spatialQuery = {
+    ...state.spatialQuery,
+    active: true,
+    serviceIds: ids
+  };
+};
+
+/**
+ * Clears spatial match set
+ */
+export const clearSpatialMatchSet = () => {
+  setSpatialMatchSet(null);
+};
+
+/**
+ * Sets spatial query point
+ * @param {object|null} point - {lng, lat} or null
+ */
+export const setSpatialPoint = (point) => {
+  state.spatialQuery = {
+    ...state.spatialQuery,
+    point: point || null
+  };
+};
+
+/**
+ * Sets spatial point picking state
+ * @param {boolean} picking - Whether user is picking a point on the map
+ */
+export const setSpatialPickingPoint = (picking) => {
+  state.spatialQuery = {
+    ...state.spatialQuery,
+    pickingPoint: Boolean(picking)
+  };
 };
 
 /**

@@ -129,11 +129,16 @@
       </div>
     </header>
     <div class="flex-1 flex overflow-hidden">
-      <aside id="sidebar" class="w-72 flex-none flex flex-col border-r border-border bg-surface z-20">
+      <aside id="sidebar" class="w-72 flex-none flex flex-col border-r border-border bg-surface z-20 transition-all duration-300">
         <div class="p-4 border-b border-border">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-xs font-bold uppercase tracking-wider text-text-secondary">Scope</h2>
-            <button id="clear-all" class="text-[10px] text-primary hover:underline">Clear All</button>
+            <div class="flex items-center gap-2">
+              <button id="sidebar-fullscreen" class="text-text-tertiary hover:text-primary transition-colors" title="Toggle fullscreen sidebar">
+                <span class="material-symbols-outlined text-[18px]">fullscreen</span>
+              </button>
+              <button id="clear-all" class="text-[10px] text-primary hover:underline">Clear All</button>
+            </div>
           </div>
           <div id="scope-chips" class="flex flex-wrap gap-2"></div>
           <div class="mt-4 relative">
@@ -235,6 +240,131 @@
                   <span>Color routes by operator</span>
                 </label>
               </div>
+            </div>
+          </div>
+          <div id="spatial-logic-tool" data-feature="spatialQuery" class="relative">
+            <div class="absolute -inset-1 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-100/50 -z-10"></div>
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-[16px]">manage_search</span>
+                Spatial Query
+              </h2>
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-white uppercase tracking-wide">Beta</span>
+            </div>
+
+            <div class="flex bg-slate-100 rounded-full p-0.5 mb-3">
+              <button id="slb-tab-builder" class="flex-1 px-3 py-1 text-xs font-semibold rounded-full transition-all bg-surface text-primary shadow-sm">Builder</button>
+              <button id="slb-tab-templates" class="flex-1 px-3 py-1 text-xs font-semibold rounded-full transition-all text-text-secondary hover:bg-slate-200">Templates</button>
+            </div>
+
+            <div id="slb-builder-panel" class="bg-white border border-blue-200 rounded-lg shadow-sm overflow-hidden">
+              <div class="p-3 space-y-3">
+                <div class="space-y-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium text-text-secondary uppercase tracking-wide w-8">Find</span>
+                    <select id="slb-find" class="flex-1 text-xs font-bold text-primary bg-blue-50 px-2 py-1.5 rounded border border-blue-200 focus:outline-none focus:ring-1 focus:ring-primary">
+                      <option value="routes">Bus Routes</option>
+                      <option value="stops">Bus Stops</option>
+                    </select>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium text-text-secondary uppercase tracking-wide w-8">That</span>
+                    <div class="flex-1 flex gap-2">
+                      <button id="slb-condition-intersect" data-condition="intersect" class="flex-1 text-xs font-bold px-2 py-1.5 rounded border bg-primary text-white border-primary shadow-sm">Intersect</button>
+                      <button id="slb-condition-within" data-condition="within" class="flex-1 text-xs font-bold px-2 py-1.5 rounded border bg-slate-50 text-text-main border-slate-200 hover:bg-slate-100">Within</button>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium text-text-secondary uppercase tracking-wide w-8">Dist</span>
+                    <div class="flex-1 relative">
+                      <input id="slb-distance" type="number" min="0" step="50" value="300" class="w-full text-xs font-bold text-text-main bg-white px-2 py-1.5 pr-20 rounded border border-border focus:border-primary focus:ring-1 focus:ring-primary" />
+                      <span class="absolute right-2 top-1.5 text-[10px] font-bold text-text-tertiary pointer-events-none">METERS</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium text-text-secondary uppercase tracking-wide w-8">Of</span>
+                    <select id="slb-target" class="flex-1 text-xs font-bold text-text-main bg-slate-50 px-2 py-1.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-primary">
+                      <option value="selected_point">Selected Point</option>
+                      <option value="boundary">Boundary</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Logic Blocks (Include/Exclude) -->
+                <div class="space-y-2">
+                  <label class="text-[10px] font-bold text-text-main uppercase tracking-wide">Additional Logic:</label>
+                  <div id="slb-blocks-container" class="space-y-1.5 max-h-40 overflow-y-auto scrollbar-thin pr-1"></div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button data-block-type="include" class="slb-add-block-pill inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 hover:border-green-300 transition-colors" title="Add a condition to include additional results based on spatial criteria">
+                      <span class="material-symbols-outlined text-[14px]">add_circle</span>
+                      Include
+                    </button>
+                    <button data-block-type="also-include" class="slb-add-block-pill inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors" title="Add an alternative condition to also include results matching different spatial criteria">
+                      <span class="material-symbols-outlined text-[14px]">add_circle</span>
+                      Also Include
+                    </button>
+                    <button data-block-type="exclude" class="slb-add-block-pill inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 hover:border-red-300 transition-colors" title="Add a condition to exclude results based on attribute filters (operator, mode, etc.)">
+                      <span class="material-symbols-outlined text-[14px]">add_circle</span>
+                      Exclude
+                    </button>
+                  </div>
+                </div>
+
+                <div class="bg-blue-50/50 p-2 rounded border border-blue-100">
+                  <p class="text-[10px] text-text-secondary leading-normal">
+                    <span class="material-symbols-outlined text-[10px] mr-0.5 align-middle text-primary">info</span>
+                    Query: <strong id="slb-summary" class="text-primary">Routes intersecting 300m of Selected Point</strong>
+                  </p>
+                </div>
+                <div id="slb-point-section" class="bg-slate-50 p-2 rounded border border-slate-200">
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="text-[10px] font-bold text-text-main uppercase tracking-wide">Point:</label>
+                    <div data-slb-point-label class="text-[10px] font-mono text-text-secondary">Not set</div>
+                  </div>
+                  <button data-slb-pick-point class="w-full py-1.5 rounded border border-border text-xs font-semibold bg-white hover:bg-slate-50 transition-colors">
+                    <span class="material-symbols-outlined text-[14px] align-middle">location_on</span>
+                    Pick Point on Map
+                  </button>
+                </div>
+              </div>
+              <div class="bg-slate-50 px-3 py-2 border-t border-border flex justify-between gap-2">
+                <button id="slb-clear" class="text-xs text-text-secondary hover:text-text-main font-medium px-2 py-1">Clear</button>
+                <button id="slb-run" class="bg-primary hover:bg-primary-hover text-white text-xs font-bold px-3 py-1 rounded shadow-sm transition-colors flex items-center gap-1">
+                  Run Query
+                  <span class="material-symbols-outlined text-[14px]">play_arrow</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="slb-templates-panel" class="hidden grid grid-cols-2 gap-2">
+              <button class="slb-template p-2 rounded-lg border border-slate-200 text-left transition-all hover:border-primary bg-white hover:bg-slate-50 group" data-template="proximity">
+                <div class="size-8 rounded flex items-center justify-center mb-1.5 bg-slate-100 text-text-secondary group-hover:bg-blue-100 group-hover:text-primary">
+                  <span class="material-symbols-outlined text-[18px]">radio_button_checked</span>
+                </div>
+                <div class="text-[10px] font-bold text-text-main leading-tight mb-0.5">Proximity</div>
+                <div class="text-[9px] text-text-tertiary leading-tight">Find within radius</div>
+              </button>
+              <button class="slb-template p-2 rounded-lg border border-slate-200 text-left transition-all hover:border-primary bg-white hover:bg-slate-50 group" data-template="overlap">
+                <div class="size-8 rounded flex items-center justify-center mb-1.5 bg-slate-100 text-text-secondary group-hover:bg-blue-100 group-hover:text-primary">
+                  <span class="material-symbols-outlined text-[18px]">layers</span>
+                </div>
+                <div class="text-[10px] font-bold text-text-main leading-tight mb-0.5">Overlap</div>
+                <div class="text-[9px] text-text-tertiary leading-tight">Find intersections</div>
+              </button>
+              <button class="slb-template p-2 rounded-lg border border-slate-200 text-left transition-all hover:border-primary bg-white hover:bg-slate-50 group" data-template="catchment">
+                <div class="size-8 rounded flex items-center justify-center mb-1.5 bg-slate-100 text-text-secondary group-hover:bg-blue-100 group-hover:text-primary">
+                  <span class="material-symbols-outlined text-[18px]">location_on</span>
+                </div>
+                <div class="text-[10px] font-bold text-text-main leading-tight mb-0.5">Catchment</div>
+                <div class="text-[9px] text-text-tertiary leading-tight">Walking distance</div>
+              </button>
+              <button class="slb-template p-2 rounded-lg border border-slate-200 text-left transition-all hover:border-primary bg-white hover:bg-slate-50 group" data-template="route-link">
+                <div class="size-8 rounded flex items-center justify-center mb-1.5 bg-slate-100 text-text-secondary group-hover:bg-blue-100 group-hover:text-primary">
+                  <span class="material-symbols-outlined text-[18px]">route</span>
+                </div>
+                <div class="text-[10px] font-bold text-text-main leading-tight mb-0.5">Route Link</div>
+                <div class="text-[9px] text-text-tertiary leading-tight">Distance along line</div>
+              </button>
             </div>
           </div>
           <div>
@@ -346,7 +476,7 @@
               <h4 class="text-[10px] font-bold uppercase tracking-wider text-text-secondary mb-2">Legend</h4>
               <div id="legend-items" class="space-y-2 text-[11px] text-text-main font-medium"></div>
             </div>
-            <div class="mt-2 flex flex-col items-end">
+            <div class="mt-2 flex flex-col items-end gap-2">
               <div class="bg-white rounded-lg shadow-sm border border-border/60 flex flex-col overflow-hidden">
                 <button id="zoom-in" class="p-1.5 hover:bg-slate-50 border-b border-border/50 text-text-secondary transition-colors" aria-label="Zoom in" title="Zoom in">
                   <span class="material-symbols-outlined text-[20px]">add</span>
@@ -355,6 +485,9 @@
                   <span class="material-symbols-outlined text-[20px]">remove</span>
                 </button>
               </div>
+              <button id="map-fullscreen" class="bg-white rounded-lg shadow-sm border border-border/60 p-1.5 hover:bg-slate-50 text-text-secondary transition-colors" aria-label="Toggle fullscreen map" title="Toggle fullscreen map">
+                <span class="material-symbols-outlined text-[20px]">fullscreen</span>
+              </button>
             </div>
           </div>
           <div data-feature="stopStationExplorer" class="absolute top-16 left-16 z-20">

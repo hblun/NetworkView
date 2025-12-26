@@ -25,6 +25,8 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
     target: document.getElementById("slb-target"),
     summary: document.getElementById("slb-summary"),
     pointSection: document.getElementById("slb-point-section"),
+    addBlockPills: document.querySelectorAll(".slb-add-block-pill"),
+    blocksContainer: document.getElementById("slb-blocks-container"),
     clear: document.getElementById("slb-clear"),
     run: document.getElementById("slb-run"),
     templates: document.querySelectorAll(".slb-template")
@@ -35,8 +37,11 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
     find: "routes",
     condition: "intersect",
     distance: 300,
-    target: "selected_point"
+    target: "selected_point",
+    blocks: [] // Additional Include/Exclude/Also Include blocks
   };
+
+  let blockIdCounter = 0;
 
   // Update summary text
   const updateSummary = () => {
@@ -44,7 +49,32 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
     const conditionLabel = state.condition === "intersect" ? "intersecting" : "within";
     const targetLabel = elements.target.options[elements.target.selectedIndex].text;
 
-    const summary = `${findLabel} ${conditionLabel} ${state.distance}m of ${targetLabel}`;
+    let summary = `${findLabel} ${conditionLabel} ${state.distance}m of ${targetLabel}`;
+
+    // Add block descriptions
+    state.blocks.forEach((block) => {
+      const typeLabel = block.type === "include" ? "also including those" :
+                       block.type === "exclude" ? "excluding those" :
+                       "also including those";
+
+      let operatorLabel = "";
+      if (block.operator === "near_point") {
+        operatorLabel = `near point (${block.distance || 300}m)`;
+      } else if (block.operator === "touches_boundary") {
+        operatorLabel = "touching boundary";
+      } else if (block.operator === "inside_boundary") {
+        operatorLabel = "inside boundary";
+      } else if (block.operator === "operator") {
+        operatorLabel = `with operator = ${block.value || "..."}`;
+      } else if (block.operator === "mode") {
+        operatorLabel = `with mode = ${block.value || "..."}`;
+      }
+
+      if (operatorLabel) {
+        summary += `, ${typeLabel} ${operatorLabel}`;
+      }
+    });
+
     elements.summary.textContent = summary;
   };
 
@@ -70,20 +100,159 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
     }
   };
 
+  // Get operator options based on block type
+  const getOperatorOptions = (blockType) => {
+    if (blockType === "exclude") {
+      return {
+        operator: `<option value="operator">Operator</option><option value="mode">Mode</option>`,
+        valueSelect: `<select class="block-value-select text-[10px] bg-white px-1.5 py-0.5 rounded border border-slate-200 focus:ring-1 focus:ring-primary">
+          <option value="">Select...</option>
+          <option value="FirstBus">FirstBus</option>
+          <option value="Stagecoach">Stagecoach</option>
+          <option value="Bus">Bus</option>
+          <option value="Rail">Rail</option>
+        </select>`
+      };
+    } else {
+      return {
+        operator: `<option value="near_point">Near point</option><option value="touches_boundary">Touches boundary</option><option value="inside_boundary">Inside boundary</option>`,
+        valueSelect: `<input type="number" class="block-distance-input w-16 text-[10px] bg-white px-1.5 py-0.5 rounded border border-slate-200 focus:ring-1 focus:ring-primary" value="300" min="0" step="50" /><span class="text-[9px] text-text-tertiary">m</span>`
+      };
+    }
+  };
+
+  // Create a block pill element
+  const createBlockPill = (block) => {
+    const pill = document.createElement("div");
+    pill.className = "flex items-center gap-2 bg-white border border-slate-200 rounded-lg pl-3 pr-2 py-1.5 text-xs group hover:border-primary transition-colors";
+    pill.dataset.blockId = block.id;
+
+    const typeColors = {
+      include: "bg-green-100 text-green-700",
+      exclude: "bg-red-100 text-red-700",
+      "also-include": "bg-blue-100 text-blue-700"
+    };
+
+    const operatorOpts = getOperatorOptions(block.type);
+    const isExclude = block.type === "exclude";
+
+    pill.innerHTML = `
+      <select class="block-type-select text-[10px] font-bold px-1.5 py-0.5 rounded ${typeColors[block.type]} border-0 focus:ring-1 focus:ring-primary">
+        <option value="include" ${block.type === "include" ? "selected" : ""}>Include</option>
+        <option value="also-include" ${block.type === "also-include" ? "selected" : ""}>Also Include</option>
+        <option value="exclude" ${block.type === "exclude" ? "selected" : ""}>Exclude</option>
+      </select>
+      <select class="block-operator-select text-[10px] bg-white px-1.5 py-0.5 rounded border border-slate-200 focus:ring-1 focus:ring-primary">
+        ${operatorOpts.operator}
+      </select>
+      <div class="block-value-container flex items-center gap-1">
+        ${operatorOpts.valueSelect}
+      </div>
+      <button class="block-remove opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-red-50 rounded-full">
+        <span class="material-symbols-outlined text-[16px] text-red-600">close</span>
+      </button>
+    `;
+
+    // Event listeners
+    const typeSelect = pill.querySelector(".block-type-select");
+    const operatorSelect = pill.querySelector(".block-operator-select");
+    const valueContainer = pill.querySelector(".block-value-container");
+    const removeBtn = pill.querySelector(".block-remove");
+
+    typeSelect.addEventListener("change", (e) => {
+      block.type = e.target.value;
+      typeSelect.className = `block-type-select text-[10px] font-bold px-1.5 py-0.5 rounded ${typeColors[block.type]} border-0 focus:ring-1 focus:ring-primary`;
+
+      // Update operator options
+      const newOpts = getOperatorOptions(block.type);
+      operatorSelect.innerHTML = newOpts.operator;
+      valueContainer.innerHTML = newOpts.valueSelect;
+
+      updateSummary();
+    });
+
+    operatorSelect.addEventListener("change", () => {
+      block.operator = operatorSelect.value;
+      updateSummary();
+    });
+
+    // Handle value changes (works for both input and select)
+    valueContainer.addEventListener("input", (e) => {
+      if (e.target.classList.contains("block-distance-input")) {
+        block.distance = Number(e.target.value);
+      }
+      updateSummary();
+    });
+
+    valueContainer.addEventListener("change", (e) => {
+      if (e.target.classList.contains("block-value-select")) {
+        block.value = e.target.value;
+      }
+      updateSummary();
+    });
+
+    removeBtn.addEventListener("click", () => {
+      removeBlock(block.id);
+    });
+
+    // Initialize block data
+    block.operator = operatorSelect.value;
+    if (isExclude) {
+      block.value = valueContainer.querySelector(".block-value-select")?.value || "";
+    } else {
+      block.distance = Number(valueContainer.querySelector(".block-distance-input")?.value) || 300;
+    }
+
+    return pill;
+  };
+
+  // Add a new block
+  const addBlock = (type = "also-include") => {
+    const block = {
+      id: ++blockIdCounter,
+      type,
+      operator: type === "exclude" ? "operator" : "near_point",
+      value: "",
+      distance: 300
+    };
+
+    state.blocks.push(block);
+    const pill = createBlockPill(block);
+    elements.blocksContainer.appendChild(pill);
+    updateSummary();
+  };
+
+  // Remove a block
+  const removeBlock = (blockId) => {
+    state.blocks = state.blocks.filter((b) => b.id !== blockId);
+    const pill = elements.blocksContainer.querySelector(`[data-block-id="${blockId}"]`);
+    if (pill) {
+      pill.remove();
+    }
+    updateSummary();
+  };
+
   // Compile current state to query object
   const compile = () => {
+    const mainBlock = {
+      find: state.find,
+      relation: state.condition === "within" ? "within" : "intersects",
+      target: state.target,
+      distance: state.distance
+    };
+
     return {
       find: state.find,
       condition: state.condition,
       distance: state.distance,
       target: state.target,
       relation: state.condition === "within" ? "within" : "intersects",
-      blocks: [{
-        find: state.find,
-        relation: state.condition === "within" ? "within" : "intersects",
-        target: state.target,
-        distance: state.distance
-      }]
+      blocks: [mainBlock, ...state.blocks.map(b => ({
+        type: b.type,
+        operator: b.operator,
+        value: b.value,
+        distance: b.distance
+      }))]
     };
   };
 
@@ -187,16 +356,26 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
     updatePointSectionVisibility();
   });
 
+  // Add block pill buttons
+  elements.addBlockPills.forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const blockType = pill.dataset.blockType;
+      addBlock(blockType);
+    });
+  });
+
   elements.clear?.addEventListener("click", () => {
     // Reset to defaults
     state.find = "routes";
     state.condition = "intersect";
     state.distance = 300;
     state.target = "selected_point";
+    state.blocks = [];
 
     elements.find.value = state.find;
     elements.distance.value = state.distance;
     elements.target.value = state.target;
+    elements.blocksContainer.innerHTML = "";
 
     updateConditionButtons();
     updateSummary();

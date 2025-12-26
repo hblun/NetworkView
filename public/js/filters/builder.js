@@ -275,7 +275,9 @@ export const buildBboxFilter = (map) => {
 
   if (state.spatialReady && state.geometryField) {
     const geomField = quoteIdentifier(state.geometryField);
-    return `ST_Intersects(${geomField}, ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}))`;
+    // DuckDB uses ST_GeomFromText with WKT, not ST_MakeEnvelope
+    const polygonWKT = `POLYGON((${minLon} ${minLat}, ${maxLon} ${minLat}, ${maxLon} ${maxLat}, ${minLon} ${maxLat}, ${minLon} ${minLat}))`;
+    return `ST_Intersects(${geomField}, ST_GeomFromText('${polygonWKT}'))`;
   }
 
   if (!state.bboxReady || !state.bboxFields) {

@@ -10,7 +10,9 @@ export const LAYER_IDS = {
   BASE: "routes-line",
   SELECTED: "routes-selected",
   BOUNDARIES_LA: "boundaries-la",
-  BOUNDARIES_RPT: "boundaries-rpt"
+  BOUNDARIES_RPT: "boundaries-rpt",
+  SPATIAL_POINT: "spatial-point",
+  SPATIAL_RADIUS: "spatial-radius"
 };
 
 // Default colors

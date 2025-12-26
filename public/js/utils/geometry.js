@@ -85,3 +85,48 @@ export const isValidBbox = (bbox) => {
   const [minLon, minLat, maxLon, maxLat] = bbox.map(Number);
   return [minLon, minLat, maxLon, maxLat].every((n) => Number.isFinite(n));
 };
+
+/**
+ * Creates a circular polygon approximation around a point
+ * @param {object} center - Center point {lng, lat}
+ * @param {number} radiusMeters - Radius in meters
+ * @param {number} segments - Number of segments (default 64)
+ * @returns {object} GeoJSON Polygon geometry
+ */
+export const createCirclePolygon = (center, radiusMeters, segments = 64) => {
+  if (!center || !Number.isFinite(center.lng) || !Number.isFinite(center.lat)) {
+    return null;
+  }
+  if (!Number.isFinite(radiusMeters) || radiusMeters <= 0) {
+    return null;
+  }
+
+  const coordinates = [];
+  const earthRadius = 6371000; // Earth radius in meters
+  const lat = (center.lat * Math.PI) / 180;
+  const lng = (center.lng * Math.PI) / 180;
+
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i * 360) / segments;
+    const angleRad = (angle * Math.PI) / 180;
+
+    const dx = radiusMeters * Math.cos(angleRad);
+    const dy = radiusMeters * Math.sin(angleRad);
+
+    const deltaLat = dy / earthRadius;
+    const deltaLng = dx / (earthRadius * Math.cos(lat));
+
+    const pointLat = lat + deltaLat;
+    const pointLng = lng + deltaLng;
+
+    coordinates.push([
+      (pointLng * 180) / Math.PI,
+      (pointLat * 180) / Math.PI
+    ]);
+  }
+
+  return {
+    type: "Polygon",
+    coordinates: [coordinates]
+  };
+};

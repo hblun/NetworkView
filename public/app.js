@@ -1,6 +1,6 @@
 import maplibregl from "https://esm.sh/maplibre-gl@3.6.2";
 import { Protocol } from "https://cdn.jsdelivr.net/npm/pmtiles@3.0.6/+esm";
-import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm";
+import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/+esm";
 
 // Module imports - Phase 3 Integration
 // Constants
@@ -72,6 +72,8 @@ const elements = {
   zoomIn: document.getElementById("zoom-in"),
   zoomOut: document.getElementById("zoom-out"),
   sidebar: document.getElementById("sidebar"),
+  sidebarFullscreen: document.getElementById("sidebar-fullscreen"),
+  mapFullscreen: document.getElementById("map-fullscreen"),
   dataInspector: document.getElementById("data-inspector"),
   dataInspectorFilter: document.getElementById("data-inspector-filter"),
   dataInspectorExpand: document.getElementById("data-inspector-expand"),
@@ -2188,6 +2190,7 @@ const initMap = (config) => {
       });
 
       const buildVectorLayers = (sourceLayer) => {
+        console.log("[Map] Building vector layers with source-layer:", sourceLayer);
         if (map.getLayer("routes-line")) {
           map.removeLayer("routes-line");
         }
@@ -2206,6 +2209,7 @@ const initMap = (config) => {
             "line-opacity": 0.78
           }
         });
+        console.log("[Map] routes-line layer added");
 
         map.addLayer({
           id: state.selectedLayerId,
@@ -2274,14 +2278,17 @@ const initMap = (config) => {
       // Auto-detect the PMTiles source-layer name if the configured one yields no features.
       const detectSourceLayer = () => {
         if (!map.getSource("routes") || !map.isStyleLoaded()) {
+          console.log("[Map] Source layer detection skipped - source or style not ready");
           return;
         }
         const candidates = Array.from(
           new Set([configured, "routes", "scotlandbusroutes", "route_lines", "lines"].filter(Boolean))
         );
+        console.log("[Map] Trying source-layer candidates:", candidates);
         for (const candidate of candidates) {
           try {
             const features = map.querySourceFeatures("routes", { sourceLayer: candidate });
+            console.log(`[Map] Candidate '${candidate}': ${features?.length || 0} features`);
             if (features && features.length) {
               if (candidate !== configured) {
                 setStatus(`Detected PMTiles layer '${candidate}'.`);
@@ -2293,9 +2300,10 @@ const initMap = (config) => {
               return;
             }
           } catch (error) {
-            // Ignore until tiles are loaded.
+            console.log(`[Map] Error checking candidate '${candidate}':`, error.message);
           }
         }
+        console.log("[Map] No source-layer candidates returned features");
       };
 
       map.once("idle", detectSourceLayer);
@@ -2311,6 +2319,12 @@ const initMap = (config) => {
       // If nothing renders after a short delay, surface a helpful hint.
       window.setTimeout(() => {
         const rendered = map.queryRenderedFeatures(undefined, { layers: ["routes-line"] });
+        const filter = map.getFilter("routes-line");
+        console.log("[Map] Rendered features check:", rendered.length, "features found");
+        console.log("[Map] Layer exists:", map.getLayer("routes-line") ? "yes" : "no");
+        console.log("[Map] Source exists:", map.getSource("routes") ? "yes" : "no");
+        console.log("[Map] Current zoom:", map.getZoom());
+        console.log("[Map] Layer filter:", filter);
         if (!rendered.length) {
           setStatus("No routes are rendering yet. Check vectorLayer/source-layer, file path, and Range support. Try GeoJSON preview.");
         } else {
@@ -2853,6 +2867,77 @@ const init = async () => {
         }
       });
     }
+
+    // Sidebar fullscreen toggle
+    if (elements.sidebarFullscreen) {
+      elements.sidebarFullscreen.addEventListener("click", () => {
+        if (!elements.sidebar) {
+          return;
+        }
+        const fullscreen = elements.sidebar.dataset.fullscreen === "true";
+        elements.sidebar.dataset.fullscreen = fullscreen ? "false" : "true";
+
+        if (!fullscreen) {
+          // Enter fullscreen
+          elements.sidebar.style.width = "100vw";
+          elements.sidebar.style.maxWidth = "100vw";
+          elements.sidebar.style.zIndex = "50";
+        } else {
+          // Exit fullscreen
+          elements.sidebar.style.width = "";
+          elements.sidebar.style.maxWidth = "";
+          elements.sidebar.style.zIndex = "";
+        }
+
+        const icon = elements.sidebarFullscreen.querySelector(".material-symbols-outlined");
+        if (icon) {
+          icon.textContent = fullscreen ? "fullscreen" : "fullscreen_exit";
+        }
+
+        if (state.map) {
+          state.map.resize();
+        }
+      });
+    }
+
+    // Map fullscreen toggle
+    if (elements.mapFullscreen) {
+      elements.mapFullscreen.addEventListener("click", () => {
+        const main = document.querySelector("main");
+        if (!main) {
+          return;
+        }
+        const fullscreen = main.dataset.fullscreen === "true";
+        main.dataset.fullscreen = fullscreen ? "false" : "true";
+
+        if (!fullscreen) {
+          // Enter fullscreen
+          main.style.position = "fixed";
+          main.style.inset = "0";
+          main.style.zIndex = "50";
+          if (elements.sidebar) {
+            elements.sidebar.style.display = "none";
+          }
+        } else {
+          // Exit fullscreen
+          main.style.position = "";
+          main.style.inset = "";
+          main.style.zIndex = "";
+          if (elements.sidebar) {
+            elements.sidebar.style.display = "";
+          }
+        }
+
+        const icon = elements.mapFullscreen.querySelector(".material-symbols-outlined");
+        if (icon) {
+          icon.textContent = fullscreen ? "fullscreen" : "fullscreen_exit";
+        }
+
+        if (state.map) {
+          state.map.resize();
+        }
+      });
+    }
     initTabs();
     let spatialLogicRunner = null;
     if (elements.spatialLogicTool && !elements.spatialLogicTool.hidden) {
@@ -2871,13 +2956,34 @@ const init = async () => {
             onApplyFilters({ autoFit: false });
           },
           onRun: async (compiled) => {
-            await applySpatialLogic(compiled, {
-              setStatus,
-              setMatchSet: setSpatialMatchSet,
-              config: state.config
-            });
-            updateSpatialPointOverlay();
-            onApplyFilters({ autoFit: true });
+            if (!spatialLogicRunner) {
+              setStatus("Spatial query runner not initialized.");
+              return;
+            }
+
+            if (!state.spatialQuery?.point) {
+              setStatus("Please select a point on the map first.");
+              return;
+            }
+
+            try {
+              setStatus("Running spatial query...");
+              const result = await spatialLogicRunner.run(
+                compiled,
+                state.spatialQuery.point,
+                state.db
+              );
+
+              setSpatialMatchSet(new Set(result.serviceIds));
+              setStatus(`Spatial query: ${result.count} routes found.`);
+              updateEvidence();
+              updateSpatialPointOverlay();
+              onApplyFilters({ autoFit: true });
+            } catch (err) {
+              const message = err?.message || String(err);
+              setStatus(`Spatial query failed: ${message}`);
+              console.error("[App] Spatial query error:", err);
+            }
           }
         },
         spatialLogicRunner
