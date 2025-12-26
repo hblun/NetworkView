@@ -364,6 +364,15 @@ git push -u origin phase-3-integration
 - ✅ Be atomic (one logical change per commit)
 - ❌ Be vague ("fix stuff", "updates")
 
+**Worktree Hygiene (Avoid "Git Mess"):**
+- ✅ Use `git add -p` to split changes by concern (UI vs. data vs. docs).
+- ✅ Keep local-only settings in `public/config.json` and mark with:
+  `git update-index --skip-worktree public/config.json`
+- ✅ Prefer a scratch worktree for experiments:
+  `git worktree add ../NetworkView-scratch`
+- ✅ If scope balloons, stash WIP with a name:
+  `git stash push -u -m "wip spatial"`
+
 #### 8. **Recovery Strategies** 🔧
 
 **If you accidentally delete important code:**
