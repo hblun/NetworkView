@@ -11,6 +11,9 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - **No GIS prerequisites**: Excel/Word/PowerPoint patterns over GIS metaphors.
 
 ---
+## Discovery log (2025-12-26)
+- Spatial SLB module imports in `public/app.js` were present but `public/js/spatial/` files were missing in this branch, causing module load failure and “Failed to fetch dynamically imported module” on startup. Added minimal spatial stubs and state wiring to restore app load while SLB work continues.
+
 ## Discovery log (2025-12-25)
 - Repo currently ships a static viewer in `public/` with `index.html`, `styles.css`, `boot.js`, `app.js`, plus bundled data artefacts (`routes.pmtiles`, `routes.parquet`, `metadata.json`).
 - Runtime depends on CDN-hosted ES modules (MapLibre, PMTiles, DuckDB-WASM) and a direct R2 public bucket configured in `public/config.json`.
