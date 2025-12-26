@@ -1130,7 +1130,7 @@ const showGeojsonOnMap = (geojson) => {
         return;
       }
       setSelection(feature, getFeatureKey(feature));
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+      focusTableRowByServiceId(getSelectedServiceId());
       // best-effort highlight by serviceId if available
       const serviceId = getSelectedServiceId();
       const serviceKey = state.tileFields.serviceId || "serviceId";
@@ -1292,6 +1292,7 @@ const updateOverlay = (geojson) => {
       if (state.lastPreviewGeojson) {
         updateOverlay(state.lastPreviewGeojson);
       }
+      focusTableRowByServiceId(getSelectedServiceId());
     }
   });
 
@@ -1441,6 +1442,70 @@ const getTableRowAtIndex = (index) => {
     return state.tablePaging.rows[index - range.start] || null;
   }
   return state.tableRows[index] || null;
+};
+
+const findTableRowIndexInMemory = (serviceId) => {
+  if (!serviceId) {
+    return null;
+  }
+  const rows = state.conn && state.tablePaging.enabled ? state.tablePaging.rows || [] : state.tableRows || [];
+  const matchIndex = rows.findIndex((row) => String(row?.serviceId ?? row?.service_id ?? row?.id ?? "") === String(serviceId));
+  if (matchIndex < 0) {
+    return null;
+  }
+  return state.conn && state.tablePaging.enabled ? state.tablePaging.offset + matchIndex : matchIndex;
+};
+
+const findTableRowIndex = async (serviceId) => {
+  const inMemory = findTableRowIndexInMemory(serviceId);
+  if (inMemory !== null) {
+    return inMemory;
+  }
+  if (!state.conn || !state.tablePaging.enabled) {
+    return null;
+  }
+  const idField = state.serviceIdField || (state.columns.includes("serviceId") ? "serviceId" : "");
+  if (!idField) {
+    return null;
+  }
+  const baseWhere = getCombinedWhere();
+  const idClause = `${quoteIdentifier(idField)} = '${escapeSql(serviceId)}'`;
+  const where = baseWhere
+    ? `WHERE (${baseWhere.replace(/^WHERE\\s+/i, "")}) AND ${idClause}`
+    : `WHERE ${idClause}`;
+  const order = state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "1";
+  const query = `
+    SELECT row_number() OVER (ORDER BY ${order}) - 1 AS idx
+    FROM read_parquet('routes.parquet')
+    ${where}
+    LIMIT 1
+  `;
+  try {
+    const result = await state.conn.query(query);
+    const rows = result.toArray();
+    const idx = rows[0]?.idx;
+    return Number.isFinite(idx) ? idx : null;
+  } catch (error) {
+    logEvent("warn", "Failed to locate row index for selection.", { error: error.message, serviceId });
+    return null;
+  }
+};
+
+const focusTableRowByServiceId = async (serviceId) => {
+  if (!elements.dataTableScroll) {
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+    return false;
+  }
+  const index = await findTableRowIndex(serviceId);
+  if (index === null) {
+    renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+    return false;
+  }
+  const rowHeight = state.tableVirtual.rowHeight || 34;
+  const scrollTop = Math.max(0, index * rowHeight - rowHeight * 2);
+  elements.dataTableScroll.scrollTop = scrollTop;
+  renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+  return true;
 };
 
 const normalizePreviewProps = (props) => {
@@ -2305,7 +2370,7 @@ const initMap = (config) => {
       }
       setSelection(feature, getFeatureKey(feature));
       syncSelectedLayer();
-      renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+      focusTableRowByServiceId(getSelectedServiceId());
     });
 
     map.on("mouseenter", "routes-line", () => {
@@ -2830,8 +2895,17 @@ const init = async () => {
     if (!state.tableEventsBound && elements.dataTableBody) {
       state.tableEventsBound = true;
       elements.dataTableBody.addEventListener("click", (event) => {
+        const td = event.target?.closest?.("td");
         const tr = event.target?.closest?.("tr");
         const idx = tr?.dataset?.rowIndex;
+        if (td && idx !== undefined) {
+          const value = td.dataset.copyValue || "";
+          if (value) {
+            copyText(value).then((ok) => {
+              setStatus(ok ? "Cell copied." : "Copy failed.");
+            });
+          }
+        }
         if (idx === undefined) {
           return;
         }

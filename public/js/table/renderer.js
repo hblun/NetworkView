@@ -308,7 +308,12 @@ export const renderTable = (elements, getSelectedServiceId, setStatus, updateEvi
         (col.key === "serviceName" ? " font-medium text-text-main" : "") +
         (col.mono ? " font-mono" : "");
       const value = row ? row[col.key] : "";
-      td.textContent = value === null || value === undefined ? "" : String(value);
+      const textValue = value === null || value === undefined ? "" : String(value);
+      td.textContent = textValue;
+      if (textValue) {
+        td.dataset.copyValue = textValue;
+        td.title = "Click to copy";
+      }
       tr.appendChild(td);
     });
 
