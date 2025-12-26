@@ -38,7 +38,8 @@
     "exportGeojson": false,
     "exportCsv": true,
     "geojsonPreview": true,
-    "geocoder": false
+    "geocoder": false,
+    "spatialQuery": true
   },
   "geocoder": {
     "endpoint": "https://nominatim.openstreetmap.org/search",
