@@ -2,8 +2,31 @@
  * DuckDB-WASM client initialization and connection management
  */
 
-import { state, setDuckDBConnection, setSpatialReady, setColumns } from "../state/manager.js";
+import { state, setDuckDBConnection, setSpatialReady, setColumns, setBoundaryParquetReady } from "../state/manager.js";
 import { toAbsoluteUrl, joinUrl } from "../utils/url.js";
+
+const registerParquetArtifact = async (name, url, shouldBuffer) => {
+  if (!url) {
+    return false;
+  }
+  try {
+    if (!shouldBuffer) {
+      await state.db.registerFileURL(name, url);
+      return true;
+    }
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.warn(`[DuckDB] Failed to fetch ${url}: ${response.status}`);
+      return false;
+    }
+    const buffer = await response.arrayBuffer();
+    await state.db.registerFileBuffer(name, buffer);
+    return true;
+  } catch (error) {
+    console.warn(`[DuckDB] Registering ${url} failed:`, error?.message || error);
+    return false;
+  }
+};
 
 /**
  * Rebases DuckDB bundle URLs to local or custom base URL
@@ -205,31 +228,56 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
 
   const conn = await state.db.connect();
 
+  // Check cross-origin isolation status
+  const isCrossOriginIsolated = typeof window !== "undefined" && window.crossOriginIsolated;
+  console.log("[DuckDB] Cross-origin isolated:", isCrossOriginIsolated);
+  console.log("[DuckDB] Using bundle:", bundle.mainModule.includes("eh") ? "EH (exception handling)" : "MVP");
+
   // Try to load spatial extension
   let spatialReady = false;
   try {
     // Try direct LOAD first (extension may be cached)
     await conn.query("LOAD spatial");
-    spatialReady = true;
-    console.log("[DuckDB] Spatial extension loaded successfully (cached)");
+    console.log("[DuckDB] Spatial extension loaded, testing...");
+
+    // Test if spatial functions actually work (test the functions we actually use)
+    try {
+      await conn.query("SELECT ST_Intersects(ST_Buffer(ST_GeomFromText('POINT(0 0)', 4326), 0.01), ST_GeomFromText('POINT(0 0)', 4326))");
+      spatialReady = true;
+      console.log("[DuckDB] ✓ Spatial extension verified working with full ST_* functions");
+    } catch (testError) {
+      spatialReady = false;
+      console.warn("[DuckDB] Spatial extension not compatible:", testError?.message || String(testError));
+      console.warn("[DuckDB] Using bbox mode with post-filtering for spatial queries");
+    }
   } catch (loadError) {
     // If LOAD fails, try INSTALL then LOAD
     try {
       console.log("[DuckDB] Installing spatial extension...");
       await conn.query("INSTALL spatial");
       await conn.query("LOAD spatial");
-      spatialReady = true;
-      console.log("[DuckDB] Spatial extension installed and loaded successfully");
+
+      // Test if spatial functions actually work
+      try {
+        await conn.query("SELECT ST_Intersects(ST_Buffer(ST_GeomFromText('POINT(0 0)', 4326), 0.01), ST_GeomFromText('POINT(0 0)', 4326))");
+        spatialReady = true;
+        console.log("[DuckDB] ✓ Spatial extension installed and verified working with full ST_* functions");
+      } catch (testError) {
+        spatialReady = false;
+        console.warn("[DuckDB] Spatial extension not compatible:", testError?.message || String(testError));
+        console.warn("[DuckDB] Using bbox mode with post-filtering for spatial queries");
+      }
     } catch (installError) {
       spatialReady = false;
       console.warn("[DuckDB] Spatial extension unavailable:", installError?.message || String(installError));
-      console.warn("[DuckDB] Using bbox fallback for spatial queries");
+      console.warn("[DuckDB] Using bbox mode with post-filtering for spatial queries");
     }
   }
   setSpatialReady(spatialReady);
 
   // Register parquet file
-  const parquetUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, config.parquetFile));
+  const parquetPath = joinUrl(config.parquetDir ?? "", config.parquetFile);
+  const parquetUrl = toAbsoluteUrl(joinUrl(config.dataBaseUrl, parquetPath));
   const isLocalHost =
     typeof window !== "undefined" &&
     (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost");
@@ -243,6 +291,34 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
     await state.db.registerFileURL("routes.parquet", parquetUrl);
   }
 
+  const registerBoundaryArtifacts = async () => {
+    const boundaryArtifacts = [
+      {
+        type: "la",
+        configKey: "boundariesLaParquet",
+        defaultFile: "boundaries_la.parquet",
+        name: "boundaries_la.parquet"
+      },
+      {
+        type: "rpt",
+        configKey: "boundariesRptParquet",
+        defaultFile: "boundaries_rpt.parquet",
+        name: "boundaries_rpt.parquet"
+      }
+    ];
+    for (const artifact of boundaryArtifacts) {
+      const file = config[artifact.configKey] || artifact.defaultFile;
+      if (!file) {
+        continue;
+      }
+      const url = toAbsoluteUrl(joinUrl(config.dataBaseUrl, file));
+      const success = await registerParquetArtifact(artifact.name, url, effectivePreferBuffer);
+      setBoundaryParquetReady(artifact.type, success);
+    }
+  };
+
+  await registerBoundaryArtifacts();
+
   const describeParquet = async () => {
     const result = await conn.query("DESCRIBE SELECT * FROM read_parquet('routes.parquet')");
     const columns = result.toArray().map((row) => row.column_name || row.name || row[0]);
@@ -252,8 +328,22 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
     const columnLookup = new Map(columns.map((name) => [String(name).toLowerCase(), name]));
     state.geometryField = columnLookup.get("geometry") || columnLookup.get("geom") || "";
 
-    // If we have geometry column but no bbox columns, generate bbox columns
-    if (state.geometryField && !state.bboxReady && spatialReady) {
+    // Test if we can use spatial functions with the actual geometry column
+    if (spatialReady && state.geometryField) {
+      try {
+        await conn.query(`SELECT ST_Intersects(ST_Buffer(ST_GeomFromText('POINT(0 0)', 4326), 0.01), "${state.geometryField}") FROM read_parquet('routes.parquet') LIMIT 1`);
+        console.log("[DuckDB] Spatial queries with geometry column verified working");
+      } catch (geomTestError) {
+        console.warn("[DuckDB] Spatial functions work but geometry column may have issues:", geomTestError?.message);
+        console.warn("[DuckDB] Will use bbox fallback instead");
+        spatialReady = false;
+        setSpatialReady(false);
+      }
+    }
+
+    // If we have geometry column but no bbox columns, try to generate them
+    // Even if complex spatial functions failed, basic ST_XMin/YMin might work
+    if (state.geometryField && !state.bboxReady) {
       try {
         console.log("[DuckDB] Generating bbox columns from geometry...");
         await conn.query(`
@@ -277,6 +367,7 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
         console.log("[DuckDB] Bbox columns generated successfully");
       } catch (err) {
         console.warn("[DuckDB] Failed to generate bbox columns:", err.message);
+        console.warn("[DuckDB] Spatial queries will not be available - bbox columns required");
       }
     }
 
@@ -359,9 +450,9 @@ export const initDuckDb = async (config, duckdb, setStatus) => {
   if (spatialReady) {
     setStatus("DuckDB ready with spatial support.");
   } else if (geojsonAvailable) {
-    setStatus("DuckDB ready. Using precomputed GeoJSON for previews.");
+    setStatus("DuckDB ready. Using bbox mode with post-filtering for spatial queries.");
   } else {
-    setStatus("DuckDB ready. Spatial extension unavailable.");
+    setStatus("DuckDB ready. Spatial queries unavailable.");
   }
 
   return conn;

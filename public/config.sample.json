@@ -1,6 +1,7 @@
 {
   "dataBaseUrl": "sample",
   "pmtilesFile": "",
+  "parquetDir": "data/parquet",
   "parquetFile": "routes.parquet",
   "parquetPreferBuffer": true,
   "metadataFile": "metadata.json",
@@ -10,6 +11,8 @@
   "boundariesRptLayer": "boundaries_rpt",
   "boundariesLaCodeField": "code",
   "boundariesRptCodeField": "rpt_code",
+  "boundariesLaParquet": "boundaries_la.parquet",
+  "boundariesRptParquet": "boundaries_rpt.parquet",
   "geojsonFile": "/data/scotland-routes.geojson",
   "geojsonPreviewLimit": 500,
   "tableLimit": 2000,

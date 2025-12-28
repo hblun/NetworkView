@@ -2046,6 +2046,7 @@ const initMap = (config) => {
       return;
     }
     setSpatialPickingPoint(false);
+    map.getCanvas().style.cursor = "";
     const point = { lng: event.lngLat.lng, lat: event.lngLat.lat };
     setSpatialPoint(point);
     updateSpatialPointLabel();
@@ -2128,6 +2129,17 @@ const initMap = (config) => {
       });
     }
     if (!map.getLayer(LAYER_IDS.SPATIAL_RADIUS)) {
+      // Add fill layer first (renders below stroke)
+      map.addLayer({
+        id: `${LAYER_IDS.SPATIAL_RADIUS}-fill`,
+        type: "fill",
+        source: LAYER_IDS.SPATIAL_RADIUS,
+        paint: {
+          "fill-color": "#2563eb",
+          "fill-opacity": 0.1
+        }
+      });
+      // Add stroke layer
       map.addLayer({
         id: LAYER_IDS.SPATIAL_RADIUS,
         type: "line",
@@ -2139,6 +2151,49 @@ const initMap = (config) => {
         }
       });
     }
+
+    // Make spatial point draggable
+    let isDraggingPoint = false;
+    map.on("mouseenter", LAYER_IDS.SPATIAL_POINT, () => {
+      map.getCanvas().style.cursor = "grab";
+    });
+    map.on("mouseleave", LAYER_IDS.SPATIAL_POINT, () => {
+      if (!isDraggingPoint) {
+        map.getCanvas().style.cursor = "";
+      }
+    });
+    map.on("mousedown", LAYER_IDS.SPATIAL_POINT, (e) => {
+      e.preventDefault();
+      isDraggingPoint = true;
+      map.getCanvas().style.cursor = "grabbing";
+      map.dragPan.disable();
+    });
+    map.on("mousemove", (e) => {
+      if (!isDraggingPoint) return;
+
+      const newPoint = { lng: e.lngLat.lng, lat: e.lngLat.lat };
+      setSpatialPoint(newPoint);
+      updateSpatialPointLabel();
+      updateSpatialPointOverlay();
+    });
+    map.on("mouseup", () => {
+      if (!isDraggingPoint) return;
+
+      isDraggingPoint = false;
+      map.getCanvas().style.cursor = "";
+      map.dragPan.enable();
+
+      // Re-run query if builder state exists
+      if (state.spatialBuilder?.compiled && state.spatialQuery?.point) {
+        applySpatialLogic(state.spatialBuilder.compiled, {
+          setStatus,
+          setMatchSet: setSpatialMatchSet,
+          config: state.config
+        }).then(() => {
+          onApplyFilters({ autoFit: false });
+        });
+      }
+    });
 
     const addBoundaryLayer = (key, configKey, layerKey, color, codeField) => {
       const file = config[configKey];
@@ -2231,6 +2286,9 @@ const initMap = (config) => {
         });
 
         // Ensure spatial point overlays render above routes.
+        if (map.getLayer(`${LAYER_IDS.SPATIAL_RADIUS}-fill`)) {
+          map.moveLayer(`${LAYER_IDS.SPATIAL_RADIUS}-fill`, "routes-line");
+        }
         if (map.getLayer(LAYER_IDS.SPATIAL_RADIUS)) {
           map.moveLayer(LAYER_IDS.SPATIAL_RADIUS, "routes-line");
         }
@@ -2984,6 +3042,10 @@ const init = async () => {
               setStatus(`Spatial query failed: ${message}`);
               console.error("[App] Spatial query error:", err);
             }
+          },
+          onDistanceChange: (distance) => {
+            // Update radius overlay when distance slider moves
+            updateSpatialPointOverlay();
           }
         },
         spatialLogicRunner
@@ -2992,6 +3054,9 @@ const init = async () => {
       if (elements.spatialLogicPickPoint) {
         elements.spatialLogicPickPoint.addEventListener("click", () => {
           setSpatialPickingPoint(true);
+          if (state.map) {
+            state.map.getCanvas().style.cursor = "crosshair";
+          }
           setStatus("Click the map to set a point.");
         });
       }

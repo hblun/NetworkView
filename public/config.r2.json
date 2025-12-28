@@ -1,6 +1,7 @@
 {
   "dataBaseUrl": "https://pub-68f801c9ef774a729dd19c234b46593b.r2.dev",
   "pmtilesFile": "routes.pmtiles",
+  "parquetDir": "data/parquet",
   "parquetFile": "routes.parquet",
   "tileCacheVersion": "2025-12-25-6",
   "routesMinZoom": 5,

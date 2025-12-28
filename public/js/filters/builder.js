@@ -6,6 +6,57 @@ import { state } from "../state/manager.js";
 import { escapeSql, quoteIdentifier } from "../utils/sql.js";
 import { NONE_OPTION_VALUE } from "../config/constants.js";
 
+const quoteQualified = (value) =>
+  String(value)
+    .split(".")
+    .map((part) => quoteIdentifier(part))
+    .join(".");
+
+const quoteField = (field) => quoteQualified(field || "geometry");
+const formatLiteral = (value) => `'${escapeSql(value)}'`;
+
+const boundaryDefaults = {
+  la: { file: "boundaries_la.parquet", codeField: "code", alias: "la_boundary" },
+  rpt: { file: "boundaries_rpt.parquet", codeField: "rpt_code", alias: "rpt_boundary" }
+};
+
+const getBoundaryConfig = (type) => {
+  const config = state.config || {};
+  const upper = type === "la" ? "La" : "Rpt";
+  const pathKey = `boundaries${upper}Parquet`;
+  const codeKey = `boundaries${upper}CodeField`;
+  const file = config[pathKey] || boundaryDefaults[type].file;
+  const codeField = config[codeKey] || boundaryDefaults[type].codeField;
+  return {
+    file,
+    codeField,
+    alias: boundaryDefaults[type].alias
+  };
+};
+
+const buildBoundaryClause = (type, value) => {
+  const ready = state.boundaryParquetReady?.[type];
+  if (!value || !ready || !state.spatialReady || !state.geometryField) {
+    return "";
+  }
+  const boundary = getBoundaryConfig(type);
+  if (!boundary.file || !boundary.codeField) {
+    return "";
+  }
+  const alias = boundary.alias;
+  const codeExpr = quoteQualified(`${alias}.${boundary.codeField}`);
+  const geomExpr = quoteQualified(`${alias}.geom`);
+  const geomField = quoteField(state.geometryField);
+  const fileLiteral = formatLiteral(boundary.file);
+  const valueLiteral = formatLiteral(value);
+  return `EXISTS (
+    SELECT 1
+    FROM read_parquet(${fileLiteral}) AS ${alias}
+    WHERE ${codeExpr} = ${valueLiteral}
+      AND ST_Intersects(${geomField}, ${geomExpr})
+  )`;
+};
+
 /**
  * Gets service search value from input
  * @param {HTMLInputElement} searchInput - Search input element
@@ -200,39 +251,49 @@ export const buildWhere = (filters) => {
     }
   }
 
-  // LA filter - check both primary field and multi-membership field
+  // LA filter - prefer spatial boundary when available
   if (laValue && laValue !== NONE_OPTION_VALUE) {
-    const laClauses = [];
+    const spatialClause = buildBoundaryClause("la", laValue);
+    if (spatialClause) {
+      clauses.push(spatialClause);
+    } else {
+      const laClauses = [];
 
-    if (state.laField) {
-      laClauses.push(`${quoteIdentifier(state.laField)} = '${escapeSql(laValue)}'`);
-    }
+      if (state.laField) {
+        laClauses.push(`${quoteField(state.laField)} = ${formatLiteral(laValue)}`);
+      }
 
-    if (state.laCodesField) {
-      const pattern = `%|${escapeSql(laValue)}|%`;
-      laClauses.push(`${quoteIdentifier(state.laCodesField)} LIKE '${pattern}'`);
-    }
+      if (state.laCodesField) {
+        const pattern = `%|${escapeSql(laValue)}|%`;
+        laClauses.push(`${quoteField(state.laCodesField)} LIKE ${formatLiteral(pattern)}`);
+      }
 
-    if (laClauses.length) {
-      clauses.push(`(${laClauses.join(" OR ")})`);
+      if (laClauses.length) {
+        clauses.push(`(${laClauses.join(" OR ")})`);
+      }
     }
   }
 
-  // RPT filter - check both primary field and multi-membership field
+  // RPT filter - prefer spatial boundary when available
   if (rptValue && rptValue !== NONE_OPTION_VALUE) {
-    const rptClauses = [];
+    const spatialClause = buildBoundaryClause("rpt", rptValue);
+    if (spatialClause) {
+      clauses.push(spatialClause);
+    } else {
+      const rptClauses = [];
 
-    if (state.rptField) {
-      rptClauses.push(`${quoteIdentifier(state.rptField)} = '${escapeSql(rptValue)}'`);
-    }
+      if (state.rptField) {
+        rptClauses.push(`${quoteField(state.rptField)} = ${formatLiteral(rptValue)}`);
+      }
 
-    if (state.rptCodesField) {
-      const pattern = `%|${escapeSql(rptValue)}|%`;
-      rptClauses.push(`${quoteIdentifier(state.rptCodesField)} LIKE '${pattern}'`);
-    }
+      if (state.rptCodesField) {
+        const pattern = `%|${escapeSql(rptValue)}|%`;
+        rptClauses.push(`${quoteField(state.rptCodesField)} LIKE ${formatLiteral(pattern)}`);
+      }
 
-    if (rptClauses.length) {
-      clauses.push(`(${rptClauses.join(" OR ")})`);
+      if (rptClauses.length) {
+        clauses.push(`(${rptClauses.join(" OR ")})`);
+      }
     }
   }
 
@@ -274,10 +335,9 @@ export const buildBboxFilter = (map) => {
   const maxLat = ne.lat;
 
   if (state.spatialReady && state.geometryField) {
-    const geomField = quoteIdentifier(state.geometryField);
-    // DuckDB uses ST_GeomFromText with WKT, not ST_MakeEnvelope
-    const polygonWKT = `POLYGON((${minLon} ${minLat}, ${maxLon} ${minLat}, ${maxLon} ${maxLat}, ${minLon} ${maxLat}, ${minLon} ${minLat}))`;
-    return `ST_Intersects(${geomField}, ST_GeomFromText('${polygonWKT}'))`;
+    const geomField = quoteField(state.geometryField);
+    const envelope = `ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat})`;
+    return `ST_Intersects(${geomField}, ${envelope})`;
   }
 
   if (!state.bboxReady || !state.bboxFields) {

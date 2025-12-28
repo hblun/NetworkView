@@ -18,6 +18,7 @@ describe("Filter Builder", () => {
     state.timeBandFields = {};
     state.geometryField = null;
     state.spatialReady = false;
+    state.boundaryParquetReady = { la: false, rpt: false };
   });
 
   describe("buildWhere", () => {
@@ -74,6 +75,38 @@ describe("Filter Builder", () => {
       expect(result).toContain("WHERE");
       expect(result).toContain("localAuthority");
       expect(result).toContain("S12000033");
+    });
+
+    it("should use spatial boundary clause when available for LA", () => {
+      state.spatialReady = true;
+      state.geometryField = "geom";
+      state.boundaryParquetReady.la = true;
+      const result = buildWhere({
+        modes: [],
+        operators: [],
+        timeBands: [],
+        serviceSearch: "",
+        laValue: "S12000033",
+        rptValue: ""
+      });
+      expect(result).toContain("ST_Intersects");
+      expect(result).toContain("read_parquet('boundaries_la.parquet')");
+    });
+
+    it("should fallback to spatial boundary clause for RPT", () => {
+      state.spatialReady = true;
+      state.geometryField = "geom";
+      state.boundaryParquetReady.rpt = true;
+      const result = buildWhere({
+        modes: [],
+        operators: [],
+        timeBands: [],
+        serviceSearch: "",
+        laValue: "",
+        rptValue: "HIT"
+      });
+      expect(result).toContain("ST_Intersects");
+      expect(result).toContain("read_parquet('boundaries_rpt.parquet')");
     });
 
     it("should build WHERE for service search", () => {

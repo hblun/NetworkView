@@ -3,6 +3,66 @@
  */
 
 import { state } from "../state/manager.js";
+import { escapeSql, quoteIdentifier } from "../utils/sql.js";
+
+const quoteField = (field) => quoteIdentifier(field || "geometry");
+const formatLiteral = (value) => `'${escapeSql(value)}'`;
+
+const joinCoords = (coords) => coords.map(([lng, lat]) => `${lng} ${lat}`).join(", ");
+
+const ringToWkt = (ring) => `(${joinCoords(ring)})`;
+
+const polygonToWkt = (rings) =>
+  `(${rings.map((ring) => ringToWkt(ring)).join(", ")})`;
+
+const geometryToWkt = (geometry) => {
+  if (!geometry || typeof geometry.type !== "string") {
+    return null;
+  }
+
+  switch (geometry.type) {
+    case "Point":
+      return `POINT(${joinCoords([geometry.coordinates])})`;
+    case "LineString":
+      return `LINESTRING(${joinCoords(geometry.coordinates)})`;
+    case "Polygon":
+      return `POLYGON${polygonToWkt(geometry.coordinates)}`;
+    case "MultiPolygon":
+      return `MULTIPOLYGON(${geometry.coordinates
+        .map((polygon) => polygonToWkt(polygon))
+        .join(", ")})`;
+    default:
+      return null;
+  }
+};
+
+const normalizeBoundary = (boundary) => {
+  if (!boundary) {
+    return null;
+  }
+
+  if (typeof boundary === "string") {
+    return { wkt: boundary };
+  }
+
+  if (boundary.wkt) {
+    return { wkt: boundary.wkt };
+  }
+
+  if (boundary.geometry) {
+    const wkt = geometryToWkt(boundary.geometry);
+    if (wkt) {
+      return { wkt };
+    }
+  }
+
+  const wkt = geometryToWkt(boundary);
+  if (wkt) {
+    return { wkt };
+  }
+
+  return null;
+};
 
 /**
  * Expands a point to a bounding box based on distance
@@ -39,43 +99,43 @@ export const buildPointDistanceWhere = (point, distanceMeters, relation = "withi
     throw new Error("Invalid distance");
   }
 
-  // Use spatial extension if available and geometry field exists
-  // Otherwise fall back to bbox (if bbox columns are available)
+  const normalizedRelation = relation === "intersects" ? "intersects" : "within";
+
   const useSpatial = state.spatialReady && state.geometryField;
+  console.log("[Spatial SQL] Mode decision:", {
+    spatialReady: state.spatialReady,
+    geometryField: state.geometryField,
+    bboxReady: state.bboxReady,
+    usingSpatialMode: useSpatial
+  });
 
   if (useSpatial) {
-    const geomField = state.geometryField;
-    // DuckDB spatial: geometry column in parquet is already GEOMETRY type
-    // Don't wrap it in ST_GeomFromText, just use it directly
-    const pointWKT = `POINT(${point.lng} ${point.lat})`;
+    const geomField = quoteField(state.geometryField);
+    const pointWkt = `POINT(${point.lng} ${point.lat})`;
+    const distanceDegrees = distanceMeters / 111320;
+    const pointLiteral = formatLiteral(pointWkt);
 
-    if (relation === "within") {
-      // ST_Distance returns distance in degrees, need to convert meters to degrees
-      // Approximate: 1 degree ≈ 111,320 meters
-      const distanceDegrees = distanceMeters / 111320;
-      // Geometry column is already geometry type, no conversion needed
-      return `ST_Distance(ST_GeomFromText('${pointWKT}'), "${geomField}") <= ${distanceDegrees}`;
-    } else {
-      // intersects with buffer
-      const distanceDegrees = distanceMeters / 111320;
-      return `ST_Intersects(ST_Buffer(ST_GeomFromText('${pointWKT}'), ${distanceDegrees}), "${geomField}")`;
+    if (normalizedRelation === "within") {
+      return `ST_Distance(ST_GeomFromText(${pointLiteral}, 4326), ${geomField}) <= ${distanceDegrees}`;
     }
+
+    return `ST_Intersects(ST_Buffer(ST_GeomFromText(${pointLiteral}, 4326), ${distanceDegrees}), ${geomField})`;
   }
 
-  // Use bbox expansion (reliable and fast)
   if (!state.bboxReady) {
     throw new Error("Bbox fields not available");
   }
 
   const bbox = expandPointToBbox(point, distanceMeters);
   const { minx, miny, maxx, maxy } = state.bboxFields;
+  const clauses = [
+    `${quoteField(maxx)} >= ${bbox.minLon}`,
+    `${quoteField(minx)} <= ${bbox.maxLon}`,
+    `${quoteField(maxy)} >= ${bbox.minLat}`,
+    `${quoteField(miny)} <= ${bbox.maxLat}`
+  ];
 
-  return `
-    "${maxx}" >= ${bbox.minLon} AND
-    "${minx}" <= ${bbox.maxLon} AND
-    "${maxy}" >= ${bbox.minLat} AND
-    "${miny}" <= ${bbox.maxLat}
-  `;
+  return clauses.join(" AND ");
 };
 
 /**
@@ -89,13 +149,18 @@ export const buildBoundaryWhere = (operator, boundaryGeom) => {
     throw new Error("Boundary queries require spatial extension");
   }
 
-  const geomField = state.geometryField;
-  // TODO: Implement when boundary selection is added
-  // For now, placeholder
+  const normalized = normalizeBoundary(boundaryGeom);
+  if (!normalized?.wkt) {
+    throw new Error("Boundary geometry must include WKT or GeoJSON");
+  }
+
+  const geomField = quoteField(state.geometryField);
+  const boundaryLiteral = formatLiteral(normalized.wkt);
+
   if (operator === "touches_boundary") {
-    return `ST_Touches("${geomField}", ST_GeomFromText(?))`;
+    return `ST_Touches(${geomField}, ST_GeomFromText(${boundaryLiteral}, 4326))`;
   } else if (operator === "inside_boundary") {
-    return `ST_Within("${geomField}", ST_GeomFromText(?))`;
+    return `ST_Within(${geomField}, ST_GeomFromText(${boundaryLiteral}, 4326))`;
   }
 
   throw new Error(`Unknown boundary operator: ${operator}`);
@@ -120,13 +185,14 @@ export const buildAttributeWhere = (operator, value) => {
     }
 
     // Match any of the operator fields
-    const conditions = operatorFields.map(field => `"${field}" = '${value}'`);
+    const literal = formatLiteral(value);
+    const conditions = operatorFields.map((field) => `${quoteField(field)} = ${literal}`);
     return `(${conditions.join(" OR ")})`;
   } else if (operator === "mode") {
     if (!state.modeField) {
       throw new Error("No mode field found in schema");
     }
-    return `"${state.modeField}" = '${value}'`;
+    return `${quoteField(state.modeField)} = ${formatLiteral(value)}`;
   }
 
   throw new Error(`Unknown attribute operator: ${operator}`);
@@ -143,63 +209,69 @@ export const buildSpatialWhere = (compiled, point) => {
     return "1=1";
   }
 
-  const conditions = [];
+  const combineAnd = (current, next) =>
+    current ? `(${current}) AND (${next})` : next;
+  const combineOr = (current, next) =>
+    current ? `(${current}) OR (${next})` : next;
+  const isTrivialClause = (clause) => {
+    if (!clause) {
+      return true;
+    }
+    return clause.replace(/\s+/g, "").toLowerCase() === "1=1";
+  };
 
-  // Process all blocks
+  const globalBoundary = compiled.boundary || compiled.boundaryGeom || compiled.boundarySelection;
+
+  const buildMainClause = (block) => {
+    if (block.target === "selected_point") {
+      if (!point) {
+        throw new Error("Point is required for selected_point target");
+      }
+      return buildPointDistanceWhere(point, block.distance, block.relation);
+    }
+    if (block.target === "boundary") {
+      return buildBoundaryWhere(block.relation || "within", globalBoundary);
+    }
+    return null;
+  };
+
+  const buildSupplementalClause = (block) => {
+    if (block.operator === "near_point") {
+      if (!point) {
+        throw new Error("Point is required for near_point operator");
+      }
+      return buildPointDistanceWhere(point, block.distance || 300, "within");
+    }
+    if (block.operator === "touches_boundary" || block.operator === "inside_boundary") {
+      if (!state.spatialReady) {
+        throw new Error(`${block.operator} requires spatial extension (unavailable)`);
+      }
+      return buildBoundaryWhere(block.operator, block.boundary || globalBoundary);
+    }
+    if (block.operator === "operator" || block.operator === "mode") {
+      return buildAttributeWhere(block.operator, block.value);
+    }
+    return null;
+  };
+
+  let expression = null;
+
   compiled.blocks.forEach((block, index) => {
-    let blockCondition = null;
-
-    // Main block (first block)
-    if (index === 0) {
-      if (block.target === "selected_point") {
-        if (!point) {
-          throw new Error("Point is required for selected_point target");
-        }
-        blockCondition = buildPointDistanceWhere(point, block.distance, block.relation);
-      } else if (block.target === "boundary") {
-        // TODO: Implement boundary selection
-        throw new Error("Boundary target not yet implemented");
-      }
-    } else {
-      // Additional blocks (Include/Exclude/Also Include)
-      if (block.operator === "near_point") {
-        if (!point) {
-          throw new Error("Point is required for near_point operator");
-        }
-        blockCondition = buildPointDistanceWhere(point, block.distance || 300, "within");
-      } else if (block.operator === "touches_boundary" || block.operator === "inside_boundary") {
-        // Requires spatial extension
-        if (!state.spatialReady) {
-          throw new Error(`${block.operator} requires spatial extension (unavailable)`);
-        }
-        blockCondition = buildBoundaryWhere(block.operator, null);
-      } else if (block.operator === "operator" || block.operator === "mode") {
-        blockCondition = buildAttributeWhere(block.operator, block.value);
-      }
+    const clause =
+      index === 0 ? buildMainClause(block) : buildSupplementalClause(block);
+    if (isTrivialClause(clause)) {
+      return;
     }
 
-    if (blockCondition) {
-      // Apply block type logic
-      if (block.type === "exclude") {
-        conditions.push(`NOT (${blockCondition})`);
-      } else if (block.type === "also-include") {
-        // Also Include = OR with previous conditions
-        if (conditions.length > 0) {
-          const prev = conditions.pop();
-          conditions.push(`((${prev}) OR (${blockCondition}))`);
-        } else {
-          conditions.push(blockCondition);
-        }
-      } else {
-        // Include = AND
-        conditions.push(blockCondition);
-      }
+    const type = block.type || "include";
+    if (type === "exclude") {
+      expression = combineAnd(expression, `NOT (${clause})`);
+    } else if (type === "also-include") {
+      expression = combineOr(expression, clause);
+    } else {
+      expression = combineAnd(expression, clause);
     }
   });
 
-  if (conditions.length === 0) {
-    return "1=1";
-  }
-
-  return conditions.join(" AND ");
+  return expression || "1=1";
 };

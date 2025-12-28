@@ -11,18 +11,21 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - **No GIS prerequisites**: Excel/Word/PowerPoint patterns over GIS metaphors.
 
 ---
+## Discovery log (2025-12-28)
+- COEP/COOP headers from `tools/dev_server.py` can block cross-origin CSS/JS (Tailwind, Google Fonts, MapLibre CSS) unless requested with CORS. This manifested as the UI rendering in a linear, unstyled layout. Added `crossorigin="anonymous"` to external assets in `public/index.html` to allow CORS under `Cross-Origin-Embedder-Policy: require-corp`.
+
 ## Discovery log (2025-12-26)
 - Spatial SLB module imports in `public/app.js` were present but `public/js/spatial/` files were missing in this branch, causing module load failure and “Failed to fetch dynamically imported module” on startup. Added minimal spatial stubs and state wiring to restore app load while SLB work continues.
 
 ## Discovery log (2025-12-25)
-- Repo currently ships a static viewer in `public/` with `index.html`, `styles.css`, `boot.js`, `app.js`, plus bundled data artefacts (`routes.pmtiles`, `routes.parquet`, `metadata.json`).
+- Repo currently ships a static viewer in `public/` with `index.html`, `styles.css`, `boot.js`, `app.js`, plus bundled data artefacts (`routes.pmtiles`, `data/parquet/routes.parquet`, `metadata.json`).
 - Runtime depends on CDN-hosted ES modules (MapLibre, PMTiles, DuckDB-WASM) and a direct R2 public bucket configured in `public/config.json`.
 - `README.md` previously referenced a `frontend/` path and missing scripts; this has been corrected in doc tidy-up.
 - `BASELINE.md` exists and documents the current runtime + dataset; it should be treated as the initial baseline doc alongside this plan.
 - Phase 1 data artefacts audit (superseded): boundary PMTiles and `operators.parquet` now exist in `public/`, and local pipeline tooling is present under `tools/`.
 - Phase 1 progress: generated `public/boundaries_la.pmtiles` and `public/boundaries_rpt.pmtiles` from Spatial Hub LA WFS (layer `sh_las:pub_las`) by dissolving LA polygons into RPT regions. RPT boundaries assume full `Argyll and Bute` belongs to HITRANS (cannot split Helensburgh + Lomond without a sub-LA boundary); this limitation should be disclosed in Evidence and/or refined later.
-- Phase 1 progress: regenerated `public/routes.parquet` and `public/routes.pmtiles` with `la_code/la_name` and `rpt_code/rpt_name` attributes plus multi-membership `la_codes/rpt_codes` (pipe-delimited) so filters can match any intersecting area. Routes that failed the intersection (e.g., ferry services like `SF8 Shetland - Foula` / `CM20 Castlebay - Oban`) fall back to nearest-LA assignment.
-- Phase 2 note: time band filter UI now supports a “coming soon” state; current `public/routes.parquet` schema lacks timetable flag columns, so the filter remains disabled until time-band flags are generated.
+- Phase 1 progress: regenerated `data/parquet/routes.parquet` and `public/routes.pmtiles` with `la_code/la_name` and `rpt_code/rpt_name` attributes plus multi-membership `la_codes/rpt_codes` (pipe-delimited) so filters can match any intersecting area. Routes that failed the intersection (e.g., ferry services like `SF8 Shetland - Foula` / `CM20 Castlebay - Oban`) fall back to nearest-LA assignment.
+- Phase 2 note: time band filter UI now supports a “coming soon” state; current `data/parquet/routes.parquet` schema lacks timetable flag columns, so the filter remains disabled until time-band flags are generated.
 - DuckDB-WASM range reads can fail against local servers without robust range support; local dev now prefers buffering `routes.parquet` into memory (`parquetPreferBuffer`) to avoid “file too small” errors.
 - Map viewport filter bugfix: DuckDB count/table/stats/exports now use `buildCombinedWhere` so the "Limit to map viewport" checkbox applies to query scope; added bbox-aware filter tests.
 - Viewport filtering now uses spatial geometry when available (`ST_Intersects` + `ST_MakeEnvelope`) and falls back to bbox columns when spatial is unavailable.
@@ -40,6 +43,11 @@ Core tech choice: **DuckDB-WASM in the browser** for analysis/tabular outputs, a
 - SLB spatial SQL builder added in `public/js/spatial/sql.js`, with config-backed sources and CRS settings in `config.json` for DuckDB spatial execution.
 - Point-based spatial queries now supported via a Selected Point source: map click sets point, and SQL builder can use `selected_point` with routes as default dataset.
 - Spatial point marker + radius ring overlay added; radius uses builder "within" distance when targeting selected point.
+
+## Beads (2025-12-28)
+- `NetworkView-ubc` (“Improve spatial query coverage and relation controls”) reinforces the Spatial Query Tool epic/goals around relational operators (intersect/within/contains/touches) and dataset-agnostic filtering mentioned in the Architects section of Workstream 2.
+- `NetworkView-hf0` (“Map misses scope-selected service”) directly pairs with the Phase 2 acceptance criteria for table/map sync, so follow-up work should ensure MapLibre filters and DuckDB table queries share the same scope state.
+- `NetworkView-36p` (“Simplify left-panel filtering tiers”) documents a progressive-disclosure approach to the mode → operator → LA → RPT hierarchy, aligning with the “Progressive disclosure” ethos and the pending Simplified Spatial Logic Builder narrative in phase-planning.
 
 ## Documentation consolidation (2025-12-25)
 This section replaces the standalone status/phase docs (PHASE2_COMPLETION.md, PHASE3_PLAN.md, PHASE3_PROGRESS.md, REFACTORING_PROGRESS.md, MODULARIZATION_GUIDE.md, COMPLETED_WORK.md). Those files now point here to avoid conflicting status.
@@ -220,7 +228,7 @@ Acceptance
 
 ---
 
-### Phase 2 — Map Viewer MVP (route lines + clip + filters + linked table) (5–10 days)
+### Phase 2 – Map Viewer MVP (route lines + clip + filters + linked table) (5–10 days)
 Goal: a planner can find a place, clip to LA/RPT, filter routes, inspect, and export a CSV.
 
 Tasks: UI layout and patterns

@@ -38,10 +38,10 @@ Run the build script:
 
 This generates:
 - `public/routes.pmtiles` (8-10MB)
-- `public/routes.parquet` (50MB)
+- `data/parquet/routes.parquet` (50MB)
 - `public/boundaries_la.pmtiles` (2-3MB)
 - `public/boundaries_rpt.pmtiles` (1-2MB)
-- `public/operators.parquet` (5KB)
+- `data/parquet/operators.parquet` (5KB)
 - `data/routes_enriched.geojson` (updated with spatial joins)
 - `public/metadata.json` (dataset version info)
 
@@ -50,7 +50,7 @@ This generates:
 Check that files exist and have reasonable sizes:
 
 ```bash
-ls -lh public/*.{pmtiles,parquet}
+ls -lh public/*.pmtiles data/parquet/*.parquet
 ```
 
 Expected sizes:
@@ -113,10 +113,10 @@ wrangler login
 
 # Upload artifacts to R2 bucket
 wrangler r2 object put networkview-data/routes.pmtiles --file public/routes.pmtiles
-wrangler r2 object put networkview-data/routes.parquet --file public/routes.parquet
+wrangler r2 object put networkview-data/routes.parquet --file data/parquet/routes.parquet
 wrangler r2 object put networkview-data/boundaries_la.pmtiles --file public/boundaries_la.pmtiles
 wrangler r2 object put networkview-data/boundaries_rpt.pmtiles --file public/boundaries_rpt.pmtiles
-wrangler r2 object put networkview-data/operators.parquet --file public/operators.parquet
+wrangler r2 object put networkview-data/operators.parquet --file data/parquet/operators.parquet
 wrangler r2 object put networkview-data/metadata.json --file public/metadata.json
 ```
 
@@ -148,10 +148,13 @@ In Cloudflare dashboard:
 
 Edit `public/config.json`:
 
+Ensure you set `parquetDir` to the directory where you uploaded the Parquet artifacts (for example `data/parquet`) so DuckDB can resolve the attribute table paths.
+
 ```json
 {
   "dataBaseUrl": "https://pub-YOUR-BUCKET-ID.r2.dev",
   "pmtilesFile": "routes.pmtiles",
+  "parquetDir": "data/parquet",
   "parquetFile": "routes.parquet",
   ...
 }
@@ -250,7 +253,7 @@ Currently manual. Consider adding:
 2. Set `parquetPreferBuffer: true` in config to force full download
 3. Verify parquet file integrity:
    ```bash
-   python3 -c "import duckdb; duckdb.connect().execute('SELECT * FROM read_parquet(\"public/routes.parquet\") LIMIT 1').show()"
+   python3 -c "import duckdb; duckdb.connect().execute('SELECT * FROM read_parquet(\"data/parquet/routes.parquet\") LIMIT 1').show()"
    ```
 
 ### Issue: Filters don't work
@@ -263,7 +266,7 @@ Currently manual. Consider adding:
 1. Check metadata.json for available modes/operators
 2. Verify parquet schema:
    ```bash
-   python3 -c "import duckdb; duckdb.connect().execute('DESCRIBE SELECT * FROM read_parquet(\"public/routes.parquet\")').show()"
+   python3 -c "import duckdb; duckdb.connect().execute('DESCRIBE SELECT * FROM read_parquet(\"data/parquet/routes.parquet\")').show()"
    ```
 3. Regenerate artifacts with updated source data
 

@@ -16,4 +16,5 @@ python3 tools/build_frontend_data.py \
   "$LA_GEOJSON" \
   "$RPT_GEOJSON" \
   --output-dir "$OUTPUT_DIR" \
-  --data-dir data
+  --data-dir data \
+  --parquet-dir data/parquet

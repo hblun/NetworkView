@@ -6,7 +6,7 @@
 - User interactions include mode/operator/bbox filtering, Deck-highlighted preview updates, selection cards, and dataset stats. Sample preview geoJSON is embedded for offline testing from `sampleGeojson()`.
 
 ## Data assets
-- The current dataset lives in `public/` as `routes.pmtiles` (8.1 MB), `routes.parquet` (50 MB), `boundaries_la.pmtiles` (2.3 MB), `boundaries_rpt.pmtiles` (1.3 MB), and `metadata.json`. Metadata reports 2,784 routes, supported modes (`BUS`, `COACH`, `FERRY`), and the operators used to populate the filter selects.
+- The current dataset splits vector tiles (`public/routes.pmtiles`, `public/boundaries_la.pmtiles`, `public/boundaries_rpt.pmtiles`) from the attribute tables (`data/parquet/routes.parquet`). Metadata reports 2,784 routes, supported modes (`BUS`, `COACH`, `FERRY`), and the operators used to populate the filter selects.
 - Tokens such as `metadata.generatedAt` and `metadata.lastUpdated` are now both `2025-12-25T15:33:08.971721+00:00`, reflecting the latest artefact refresh.
 - Config-driven endpoints point to `https://pub-68f801c9ef774a729dd19c234b46593b.r2.dev` and expect `routes.pmtiles`, `routes.parquet`, `metadata.json`, plus boundary PMTiles when clipping is enabled.
 
@@ -18,7 +18,7 @@
 1. Copy the sample config: `cp public/config.sample.json public/config.json`.
 2. Run `python3 -m tools.dev_server --public-dir public --data-dir data --port 5137` and open `http://localhost:5137`.
 3. Click **Load sample preview** to check the UI without the full dataset.
-4. To exercise the full dataset, download and replace `routes.pmtiles`, `routes.parquet`, and `metadata.json` (or point `config.json` to your Cloudflare R2 bucket).
+4. To exercise the full dataset, download and replace `routes.pmtiles`, `data/parquet/routes.parquet`, and `metadata.json` (or point `config.json` to your Cloudflare R2 bucket and set `parquetDir` to the bucket path).
 
 ## Known gaps & manual checks
 - No bundler / build pipeline exists; tests and linting exist but do not cover full map + DuckDB integration.

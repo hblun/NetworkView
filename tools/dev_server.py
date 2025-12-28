@@ -92,6 +92,11 @@ class MultiRootHandler(http.server.SimpleHTTPRequestHandler):
     else:
       self.send_header("Content-Length", str(size))
     self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
+
+    # Add cross-origin isolation headers for DuckDB spatial extension (EH bundle)
+    self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+    self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+
     self.end_headers()
     f.seek(start)
     self.range = (start, end)

@@ -137,16 +137,16 @@ Place your source files in the `data/` directory:
 
 This generates:
 - `public/routes.pmtiles` - Route vector tiles
-- `public/routes.parquet` - Route attributes for DuckDB queries
+- `data/parquet/routes.parquet` - Route attributes for DuckDB queries
 - `public/boundaries_la.pmtiles` - LA boundary tiles
 - `public/boundaries_rpt.pmtiles` - RPT boundary tiles
-- `public/operators.parquet` - Operator lookup table
+- `data/parquet/operators.parquet` - Operator lookup table
 - `public/metadata.json` - Dataset metadata and version info
 
 ### 3. Verify Output
 
 ```bash
-ls -lh public/*.{pmtiles,parquet}
+ls -lh public/*.pmtiles data/parquet/*.parquet
 ```
 
 Expected file sizes:
@@ -162,6 +162,7 @@ The app is configured via `public/config.json`:
 {
   "dataBaseUrl": "",              // Base URL for data files (or "" for relative)
   "pmtilesFile": "routes.pmtiles", // Routes vector tiles
+  "parquetDir": "data/parquet", // Directory where parquet artifacts live
   "parquetFile": "routes.parquet", // Routes attribute table
   "metadataFile": "metadata.json", // Dataset metadata
   "basemapStyle": "https://...",  // MapLibre style URL

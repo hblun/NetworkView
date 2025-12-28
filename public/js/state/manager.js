@@ -92,6 +92,11 @@ export const state = {
     la: null,
     rpt: null
   }
+  ,
+  boundaryParquetReady: {
+    la: false,
+    rpt: false
+  }
 };
 
 /**
@@ -191,6 +196,16 @@ export const setSpatialPoint = (point) => {
   state.spatialQuery = {
     ...state.spatialQuery,
     point: point || null
+  };
+};
+
+export const setBoundaryParquetReady = (type, ready) => {
+  if (!["la", "rpt"].includes(type)) {
+    return;
+  }
+  state.boundaryParquetReady = {
+    ...state.boundaryParquetReady,
+    [type]: Boolean(ready)
   };
 };
 

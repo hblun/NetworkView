@@ -100,22 +100,86 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
     }
   };
 
+  // Normalize modes (same logic as app.js)
+  const normalizeModes = (raw) => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) {
+      return raw.map((item) => (typeof item === "string" ? item : item.value || item.mode)).filter(Boolean);
+    }
+    return [];
+  };
+
+  // Normalize operators (same logic as app.js)
+  const normalizeOperators = (raw) => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) {
+      return raw.map((item) => {
+        if (typeof item === "string") {
+          return { code: item, label: item };
+        }
+        const code = item.code || item.operatorCode || item.id;
+        const label = item.name || item.operatorName || item.label || code;
+        return code ? { code, label } : null;
+      }).filter(Boolean);
+    }
+    return [];
+  };
+
+  // Get available operators from metadata
+  const getAvailableOperators = () => {
+    const metadata = state.metadata;
+    if (!metadata || !metadata.operators) {
+      console.log("[Spatial Builder] Metadata not loaded yet, using fallback operators");
+      return [{ code: "FirstBus", label: "FirstBus" }, { code: "Stagecoach", label: "Stagecoach" }];
+    }
+
+    const operators = normalizeOperators(metadata.operators);
+    console.log(`[Spatial Builder] Loaded ${operators.length} operators from metadata:`, operators.slice(0, 5));
+    return operators.length > 0 ? operators : [{ code: "FirstBus", label: "FirstBus" }];
+  };
+
+  // Get available modes from metadata
+  const getAvailableModes = () => {
+    const metadata = state.metadata;
+    if (!metadata || !metadata.modes) {
+      console.log("[Spatial Builder] Metadata not loaded yet, using fallback modes");
+      return ["Bus", "Rail"];
+    }
+
+    const modes = normalizeModes(metadata.modes);
+    console.log(`[Spatial Builder] Loaded ${modes.length} modes from metadata:`, modes);
+    return modes.length > 0 ? modes : ["Bus", "Rail"];
+  };
+
+  // Build operator/mode select options HTML
+  const buildValueSelectOptions = (operatorType) => {
+    const items = operatorType === "operator" ? getAvailableOperators() : getAvailableModes();
+
+    const optionsHTML = items.map(item => {
+      // Handle operator objects { code, label } or plain mode strings
+      if (typeof item === "object" && item.code) {
+        return `<option value="${item.code}">${item.label}</option>`;
+      } else {
+        return `<option value="${item}">${item}</option>`;
+      }
+    }).join("");
+
+    return `<select class="block-value-select text-[10px] bg-white px-1.5 py-0.5 rounded border border-slate-200 focus:ring-1 focus:ring-primary">
+      <option value="">Select ${operatorType}...</option>
+      ${optionsHTML}
+    </select>`;
+  };
+
   // Get operator options based on block type
-  const getOperatorOptions = (blockType) => {
+  const getOperatorOptions = (blockType, currentOperator = "operator") => {
     if (blockType === "exclude") {
       return {
-        operator: `<option value="operator">Operator</option><option value="mode">Mode</option>`,
-        valueSelect: `<select class="block-value-select text-[10px] bg-white px-1.5 py-0.5 rounded border border-slate-200 focus:ring-1 focus:ring-primary">
-          <option value="">Select...</option>
-          <option value="FirstBus">FirstBus</option>
-          <option value="Stagecoach">Stagecoach</option>
-          <option value="Bus">Bus</option>
-          <option value="Rail">Rail</option>
-        </select>`
+        operator: `<option value="operator">by Operator</option><option value="mode">by Mode</option>`,
+        valueSelect: buildValueSelectOptions(currentOperator || "operator")
       };
     } else {
       return {
-        operator: `<option value="near_point">Near point</option><option value="touches_boundary">Touches boundary</option><option value="inside_boundary">Inside boundary</option>`,
+        operator: `<option value="near_point">also near point</option><option value="touches_boundary">also touching boundary</option><option value="inside_boundary">also inside boundary</option>`,
         valueSelect: `<input type="number" class="block-distance-input w-16 text-[10px] bg-white px-1.5 py-0.5 rounded border border-slate-200 focus:ring-1 focus:ring-primary" value="300" min="0" step="50" /><span class="text-[9px] text-text-tertiary">m</span>`
       };
     }
@@ -173,6 +237,13 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
 
     operatorSelect.addEventListener("change", () => {
       block.operator = operatorSelect.value;
+
+      // If it's an exclude block and operator type changed (operator vs mode), rebuild value select
+      if (block.type === "exclude" && (block.operator === "operator" || block.operator === "mode")) {
+        valueContainer.innerHTML = buildValueSelectOptions(block.operator);
+        block.value = ""; // Reset value when switching between operator/mode
+      }
+
       updateSummary();
     });
 
@@ -348,6 +419,11 @@ export const initSpatialLogicBuilder = (container, handlers = {}, runner = null)
   elements.distance?.addEventListener("input", (e) => {
     state.distance = Number(e.target.value) || 0;
     updateSummary();
+
+    // Trigger overlay update if handler provided
+    if (handlers.onDistanceChange) {
+      handlers.onDistanceChange(state.distance);
+    }
   });
 
   elements.target?.addEventListener("change", (e) => {
