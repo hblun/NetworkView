@@ -1,4 +1,4 @@
-import { setSpatialBuilder } from "../state/manager.js";
+import { state, setSpatialBuilder } from "../state/manager.js";
 
 /**
  * Initializes the Spatial Logic Builder UI and state management
