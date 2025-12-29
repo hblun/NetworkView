@@ -1682,6 +1682,9 @@ const loadInitialDatasetView = async () => {
 };
 
 const onClearFilters = () => {
+  if (!window.confirm("Are you sure you want to clear all filters and selections? This action cannot be undone.")) {
+    return;
+  }
   logAction("Filters cleared.");
   Array.from(elements.modeFilter.options).forEach((opt) => {
     opt.selected = false;
