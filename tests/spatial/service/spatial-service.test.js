@@ -68,7 +68,8 @@ describe("Spatial Service", () => {
       const context = {
         point: { lat: 0, lng: 0 },
         spatialReady: true,
-        geometryField: "geometry"
+        geometryField: "geometry",
+        serviceIdField: "serviceId"
       };
 
       const result = await service.executeQuery(invalidQuery, context);
@@ -107,7 +108,8 @@ describe("Spatial Service", () => {
       const context = {
         point: { lat: 0, lng: 0 },
         spatialReady: true,
-        geometryField: "geometry"
+        geometryField: "geometry",
+        serviceIdField: "serviceId"
       };
 
       const result = await service.executeQuery(query, context);
