@@ -11,10 +11,20 @@ import { state } from "../state/manager.js";
  * @returns {object} {minLon, minLat, maxLon, maxLat}
  */
 export const expandPointToBbox = (point, distanceMeters) => {
+  if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+    throw new Error("Invalid point coordinates");
+  }
+
   // Approximate conversion: 1 degree latitude ≈ 111,320 meters
   // 1 degree longitude ≈ 111,320 * cos(latitude) meters
   const latDelta = distanceMeters / 111320;
-  const lngDelta = distanceMeters / (111320 * Math.cos((point.lat * Math.PI) / 180));
+  const cosLat = Math.cos((point.lat * Math.PI) / 180);
+
+  if (!Number.isFinite(cosLat) || Math.abs(cosLat) < 1e-6) {
+    throw new Error("Cannot compute longitude delta near the poles");
+  }
+
+  const lngDelta = distanceMeters / (111320 * cosLat);
 
   return {
     minLon: point.lng - lngDelta,
@@ -45,6 +55,9 @@ export const buildPointDistanceWhere = (point, distanceMeters, relation = "withi
 
   if (useSpatial) {
     const geomField = state.geometryField;
+    if (!geomField) {
+      throw new Error("Geometry field not configured for spatial queries");
+    }
     // DuckDB spatial: geometry column in parquet is already GEOMETRY type
     // Don't wrap it in ST_GeomFromText, just use it directly
     const pointWKT = `POINT(${point.lng} ${point.lat})`;
@@ -65,6 +78,10 @@ export const buildPointDistanceWhere = (point, distanceMeters, relation = "withi
   // Use bbox expansion (reliable and fast)
   if (!state.bboxReady) {
     throw new Error("Bbox fields not available");
+  }
+
+  if (!state.bboxFields || !state.bboxFields.minx || !state.bboxFields.miny || !state.bboxFields.maxx || !state.bboxFields.maxy) {
+    throw new Error("Bbox field names are missing");
   }
 
   const bbox = expandPointToBbox(point, distanceMeters);
@@ -159,6 +176,8 @@ export const buildSpatialWhere = (compiled, point) => {
       } else if (block.target === "boundary") {
         // TODO: Implement boundary selection
         throw new Error("Boundary target not yet implemented");
+      } else {
+        throw new Error(`Unknown target type: ${block.target}`);
       }
     } else {
       // Additional blocks (Include/Exclude/Also Include)
@@ -175,6 +194,8 @@ export const buildSpatialWhere = (compiled, point) => {
         blockCondition = buildBoundaryWhere(block.operator, null);
       } else if (block.operator === "operator" || block.operator === "mode") {
         blockCondition = buildAttributeWhere(block.operator, block.value);
+      } else {
+        throw new Error(`Unknown block operator: ${block.operator}`);
       }
     }
 
@@ -194,6 +215,8 @@ export const buildSpatialWhere = (compiled, point) => {
         // Include = AND
         conditions.push(blockCondition);
       }
+    } else {
+      throw new Error(`Block at index ${index} did not produce a condition`);
     }
   });
 
