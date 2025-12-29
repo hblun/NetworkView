@@ -377,7 +377,7 @@ const renderAdminPanel = (config) => {
       row.className = "flex items-center justify-between gap-4 py-2 border-b border-border last:border-b-0";
       const left = document.createElement("div");
       left.innerHTML = `
-        <div class="text-sm font-medium text-text-main">${name}</div>
+        <div class="text-sm font-medium text-text-main">${escapeHtml(name)}</div>
         <div class="text-[11px] text-text-tertiary">
           Base: ${baseFeatures[name] ? "on" : "off"}
           ${Object.prototype.hasOwnProperty.call(overrides, name) ? "• overridden" : ""}
@@ -1219,8 +1219,8 @@ const updateScopeChips = () => {
     button.className =
       "inline-flex items-center gap-1.5 pl-2 pr-1 py-1 bg-slate-100 text-text-main border border-slate-200 rounded-full text-xs font-medium hover:bg-slate-200 transition-colors";
     button.innerHTML = `
-      <span class="material-symbols-outlined text-[14px]">${chip.icon}</span>
-      <span>${chip.label}</span>
+      <span class="material-symbols-outlined text-[14px]">${escapeHtml(chip.icon)}</span>
+      <span>${escapeHtml(chip.label)}</span>
       <span class="flex items-center justify-center h-4 w-4 rounded-full hover:bg-slate-300 ml-0.5" data-remove="1">
         <span class="material-symbols-outlined text-[12px]">close</span>
       </span>
