@@ -16,6 +16,7 @@ export const state = {
   conn: null,
   spatialReady: false,
   spatialBuilder: null,
+  spatialService: null,
   spatialMatchSet: null,
   spatialQuery: {
     active: false,
@@ -156,6 +157,14 @@ export const setSpatialReady = (ready) => {
  */
 export const setSpatialBuilder = (builder) => {
   state.spatialBuilder = builder || null;
+};
+
+/**
+ * Sets spatial service reference
+ * @param {object|null} service - Spatial service instance
+ */
+export const setSpatialService = (service) => {
+  state.spatialService = service || null;
 };
 
 /**

@@ -62,6 +62,7 @@ python3 tests/test_build_output.py
 **No intersections found?**
 → Check inputs are EPSG:4326 and geometries are valid
 
-## Full Docs
+## Additional Resources
 
-See `RUNNING_BUILD_SCRIPT.md` for complete guide
+- See `tools/build_frontend_data.py --help` for all command-line options
+- See `DEPLOYMENT.md` for deployment after build
