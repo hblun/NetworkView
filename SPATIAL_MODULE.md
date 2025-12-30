@@ -16,45 +16,57 @@
 
 ## Extension Setup & Status
 
-### Current Status: ✅ Working
+### Current Status: ⚠️ Using MVP Bundle (Spatial Extension Limited)
 
-The DuckDB spatial extension is now functional with the EH (Exception Handling) WASM bundle.
+DuckDB is running with the **MVP (Minimum Viable Product)** bundle for maximum compatibility.
 
-### Solution Implemented
+### Bundle Configuration
 
-**1. Cross-Origin Isolation Headers**
-File: `tools/dev_server.py:96-98`
+**Current Setup**: No cross-origin isolation headers
+File: `tools/dev_server.py:96-99`
 
 ```python
-# Add cross-origin isolation headers for DuckDB spatial extension (EH bundle)
-self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+# Cross-origin headers removed to use MVP bundle (maximum compatibility)
+# EH/COI bundles require cross-origin isolation which blocks external CDN resources
+# MVP bundle works without these headers but loses spatial extension support
+```
+
+**Why MVP Bundle?**
+- ✅ External CDN resources load (Tailwind, Google Fonts, MapLibre)
+- ✅ No cross-origin isolation complexity
+- ✅ Maximum browser compatibility
+- ❌ Spatial extension may not work (requires EH/COI bundle)
+- ❌ No multi-threading support
+
+**Trade-off**: Styling works, but DuckDB spatial functions (ST_Point, ST_DWithin, etc.) may not be available.
+
+**Alternative Configuration (For Spatial Extension)**
+
+If you need spatial extension support, you can try:
+
+```python
+# In tools/dev_server.py - add these headers back
+self.send_header("Cross-Origin-Embedder-Policy", "credentialless")
 self.send_header("Cross-Origin-Opener-Policy", "same-origin")
 ```
 
-**2. Bundle Detection**
-File: `public/js/duckdb/client.js:232-234`
+This enables the EH bundle but **may block external CDN resources** depending on browser implementation.
 
-The client now logs:
-- Cross-origin isolation status
-- Which bundle is selected (MVP vs EH)
-- Spatial extension test results
-
-**3. Fallback Strategy**
+**Fallback Strategy**
 File: `public/js/spatial/runner.js`
 
-Client-side post-filtering using Haversine distance calculation as safety net if spatial extension fails.
+Client-side post-filtering using Haversine distance calculation works regardless of which bundle is active.
 
 ### Troubleshooting
 
-If spatial queries aren't working:
-
+**If styling isn't loading:**
 1. **Hard refresh**: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+F5` (Windows)
-2. **Check console** for:
-   ```
-   [DuckDB] Cross-origin isolated: true
-   [DuckDB] Using bundle: EH (exception handling)
-   [DuckDB] ✓ Spatial extension verified working with full ST_* functions
-   ```
+2. **Check console** for errors blocking external resources
+3. **Verify no cross-origin headers**: `curl -I http://127.0.0.1:5137/` should NOT show COEP/COOP headers
+
+**If you need spatial extension:**
+1. Add cross-origin headers back (see Alternative Configuration above)
+2. **Risk**: May break external CDN resources
 3. **Test manually** in browser console:
    ```javascript
    const conn = await state.db.connect();
@@ -63,13 +75,19 @@ If spatial queries aren't working:
    await conn.close();
    ```
 
-### Why Cross-Origin Isolation?
+### Why This Works
 
-DuckDB WASM bundles:
-- **MVP**: Maximum compatibility, no SharedArrayBuffer, no exception handling
-- **EH**: Uses SharedArrayBuffer for better performance, requires cross-origin isolation
+**MVP Bundle** (current):
+- No cross-origin isolation needed
+- Works with all external CDN resources
+- Maximum browser compatibility
+- Single-threaded, basic WASM features only
 
-The spatial extension uses exception handling (`_setThrew` function), only available in the EH bundle.
+**The Problem**:
+- Cross-origin headers (`COEP: require-corp` or `COEP: credentialless`) enable better DuckDB bundles
+- BUT they can block external resources that don't send proper CORS headers
+- Tailwind, Google Fonts, and MapLibre CSS from CDNs can be blocked
+- Result: Site loads but has no styling
 
 ---
 

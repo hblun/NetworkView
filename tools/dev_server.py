@@ -93,9 +93,9 @@ class MultiRootHandler(http.server.SimpleHTTPRequestHandler):
       self.send_header("Content-Length", str(size))
     self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
 
-    # Add cross-origin isolation headers for DuckDB spatial extension (EH bundle)
-    self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
-    self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+    # Cross-origin headers removed to use MVP bundle (maximum compatibility)
+    # EH/COI bundles require cross-origin isolation which blocks external CDN resources
+    # MVP bundle works without these headers but loses spatial extension support
 
     self.end_headers()
     f.seek(start)

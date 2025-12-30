@@ -1932,6 +1932,7 @@ const populateBoundaryFilters = async () => {
       try {
         rows = await queryBoundaryOptions(state.laField, laNameField);
       } catch (error) {
+        console.warn("[Boundary Filters] LA query failed with detected fields:", error.message);
         rows = [];
       }
     } else {
@@ -1940,11 +1941,14 @@ const populateBoundaryFilters = async () => {
         state.laField = "la_code";
         state.laNameField = "la_name";
       } catch (error) {
+        console.warn("[Boundary Filters] LA query failed with la_code/la_name:", error.message);
         try {
           rows = await queryBoundaryOptions("la_code", "local_authority");
           state.laField = "la_code";
           state.laNameField = "local_authority";
         } catch (innerError) {
+          console.warn("[Boundary Filters] LA query failed with la_code/local_authority:", innerError.message);
+          console.log("[Boundary Filters] LA filtering unavailable - no matching columns found");
           rows = [];
         }
       }
@@ -1967,6 +1971,7 @@ const populateBoundaryFilters = async () => {
       try {
         rows = await queryBoundaryOptions(state.rptField, rptNameField);
       } catch (error) {
+        console.warn("[Boundary Filters] RTP query failed with detected fields:", error.message);
         rows = [];
       }
     } else {
@@ -1975,6 +1980,8 @@ const populateBoundaryFilters = async () => {
         state.rptField = "rpt_code";
         state.rptNameField = "rpt_name";
       } catch (error) {
+        console.warn("[Boundary Filters] RTP query failed with rpt_code/rpt_name:", error.message);
+        console.log("[Boundary Filters] RTP filtering unavailable - no matching columns found");
         rows = [];
       }
     }

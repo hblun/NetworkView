@@ -37,7 +37,10 @@ export const buildQueryContext = (appState) => {
 
     // User selection
     point: appState.spatialQuery?.point,
-    boundary: null // Future enhancement
+    boundary: null, // Future enhancement
+
+    // Metadata for UI (operators, modes)
+    metadata: appState.metadata
   };
 };
 
