@@ -3019,96 +3019,6 @@ const init = async () => {
       });
     }
     initTabs();
-    // Initialize spatial query system
-    let spatialLogicRunner = null;
-    if (elements.spatialLogicTool && !elements.spatialLogicTool.hidden) {
-      // Feature flag: use refactored spatial system by default
-      const useRefactored = state.config?.features?.refactoredSpatial ?? true;
-
-      if (useRefactored) {
-        // NEW REFACTORED PATH: Use integration adapter
-        const { createSpatialIntegration } = await import("./js/spatial/integration/adapter.js");
-        const { setSpatialService } = await import("./js/state/manager.js");
-
-        const spatialSystem = createSpatialIntegration(state.db, elements.spatialLogicTool, {
-          getState: () => state,
-          setStatus,
-          setSpatialMatchSet,
-          updateEvidence,
-          updateSpatialPointOverlay,
-          onApplyFilters
-        });
-
-        setSpatialService(spatialSystem.service);
-        setSpatialBuilder(spatialSystem.builderAdapter);
-
-      } else {
-        // LEGACY PATH: Old implementation as fallback
-        spatialLogicRunner = await loadSpatialLogicRunner(state.config, setStatus);
-        initSpatialLogicBuilder(
-          elements.spatialLogicTool,
-          {
-            onChange: async (compiled) => {
-              await applySpatialLogic(compiled, {
-                setStatus,
-                setMatchSet: setSpatialMatchSet,
-                config: state.config
-              });
-              updateEvidence();
-              updateSpatialPointOverlay();
-              onApplyFilters({ autoFit: false });
-            },
-            onRun: async (compiled) => {
-              if (!spatialLogicRunner) {
-                setStatus("Spatial query runner not initialized.");
-                return;
-              }
-
-              if (!state.spatialQuery?.point) {
-                setStatus("Please select a point on the map first.");
-                return;
-              }
-
-              try {
-                setStatus("Running spatial query...");
-                const result = await spatialLogicRunner.run(
-                  compiled,
-                  state.spatialQuery.point,
-                  state.db
-                );
-
-                setSpatialMatchSet(new Set(result.serviceIds));
-                setStatus(`Spatial query: ${result.count} routes found.`);
-                updateEvidence();
-                updateSpatialPointOverlay();
-                onApplyFilters({ autoFit: true });
-              } catch (err) {
-                const message = err?.message || String(err);
-                setStatus(`Spatial query failed: ${message}`);
-                console.error("[App] Spatial query error:", err);
-              }
-            },
-            onDistanceChange: (distance) => {
-              // Update radius overlay when distance slider moves
-              updateSpatialPointOverlay();
-            }
-          },
-          spatialLogicRunner
-        );
-      }
-
-      // Common initialization for both paths
-      updateSpatialPointLabel();
-      if (elements.spatialLogicPickPoint) {
-        elements.spatialLogicPickPoint.addEventListener("click", () => {
-          setSpatialPickingPoint(true);
-          if (state.map) {
-            state.map.getCanvas().style.cursor = "crosshair";
-          }
-          setStatus("Click the map to set a point.");
-        });
-      }
-    }
     resetStats();
     renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
     if (!state.tableEventsBound && elements.dataTableBody) {
@@ -3171,6 +3081,98 @@ const init = async () => {
       await populateBoundaryFilters();
 
       await loadInitialDatasetView();
+
+      // Initialize spatial query system AFTER DuckDB is ready
+      let spatialLogicRunner = null;
+      if (elements.spatialLogicTool && !elements.spatialLogicTool.hidden) {
+        // Feature flag: use refactored spatial system by default
+        const useRefactored = state.config?.features?.refactoredSpatial ?? true;
+
+        if (useRefactored) {
+          // NEW REFACTORED PATH: Use integration adapter
+          const { createSpatialIntegration } = await import("./js/spatial/integration/adapter.js");
+          const { setSpatialService } = await import("./js/state/manager.js");
+
+          const spatialSystem = createSpatialIntegration(state.db, elements.spatialLogicTool, {
+            getState: () => state,
+            setStatus,
+            setSpatialMatchSet,
+            updateEvidence,
+            updateSpatialPointOverlay,
+            onApplyFilters
+          });
+
+          setSpatialService(spatialSystem.service);
+          setSpatialBuilder(spatialSystem.builderAdapter);
+
+        } else {
+          // LEGACY PATH: Old implementation as fallback
+          spatialLogicRunner = await loadSpatialLogicRunner(state.config, setStatus);
+          initSpatialLogicBuilder(
+            elements.spatialLogicTool,
+            {
+              onChange: async (compiled) => {
+                await applySpatialLogic(compiled, {
+                  setStatus,
+                  setMatchSet: setSpatialMatchSet,
+                  config: state.config
+                });
+                updateEvidence();
+                updateSpatialPointOverlay();
+                onApplyFilters({ autoFit: false });
+              },
+              onRun: async (compiled) => {
+                if (!spatialLogicRunner) {
+                  setStatus("Spatial query runner not initialized.");
+                  return;
+                }
+
+                if (!state.spatialQuery?.point) {
+                  setStatus("Please select a point on the map first.");
+                  return;
+                }
+
+                try {
+                  setStatus("Running spatial query...");
+                  const result = await spatialLogicRunner.run(
+                    compiled,
+                    state.spatialQuery.point,
+                    state.db
+                  );
+
+                  setSpatialMatchSet(new Set(result.serviceIds));
+                  setStatus(`Spatial query: ${result.count} routes found.`);
+                  updateEvidence();
+                  updateSpatialPointOverlay();
+                  onApplyFilters({ autoFit: true });
+                } catch (err) {
+                  const message = err?.message || String(err);
+                  setStatus(`Spatial query failed: ${message}`);
+                  console.error("[App] Spatial query error:", err);
+                }
+              },
+              onDistanceChange: (distance) => {
+                // Update radius overlay when distance slider moves
+                updateSpatialPointOverlay();
+              }
+            },
+            spatialLogicRunner
+          );
+        }
+
+        // Common initialization for both paths
+        updateSpatialPointLabel();
+        if (elements.spatialLogicPickPoint) {
+          elements.spatialLogicPickPoint.addEventListener("click", () => {
+            setSpatialPickingPoint(true);
+            if (state.map) {
+              state.map.getCanvas().style.cursor = "crosshair";
+            }
+            setStatus("Click the map to set a point.");
+          });
+        }
+      }
+
     } catch (duckdbError) {
       state.conn = null;
       state.db = null;
