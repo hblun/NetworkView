@@ -460,10 +460,20 @@ const renderDropdownItems = (container, items, onPick) => {
     row.type = "button";
     row.className =
       "w-full text-left px-3 py-2 text-xs hover:bg-slate-50 border-b border-border last:border-b-0";
-    row.innerHTML = item.html;
     row.setAttribute("role", "option");
     row.dataset.index = String(idx);
     row.addEventListener("click", () => onPick(item, idx));
+
+    const title = document.createElement("div");
+    title.className = "font-semibold text-text-main";
+    title.textContent = item.title;
+
+    const subtitle = document.createElement("div");
+    subtitle.className = "text-[11px] text-text-secondary";
+    subtitle.textContent = item.subtitle;
+
+    row.appendChild(title);
+    row.appendChild(subtitle);
     container.appendChild(row);
   });
   showDropdown(container);
@@ -3123,8 +3133,8 @@ const init = async () => {
           queryServiceSuggestions(value).then((rows) => {
             const items = rows.map((row) => ({
               value: row.serviceId || row.serviceName,
-              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
-<div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
+              title: row.serviceName || row.serviceId,
+              subtitle: `${row.serviceId} • ${row.operatorName} • ${row.mode}`
             }));
             renderDropdownItems(elements.serviceSearchResults, items, (item) => {
               elements.serviceSearch.value = item.value;
@@ -3143,8 +3153,8 @@ const init = async () => {
           queryServiceSuggestions(value).then((rows) => {
             const items = rows.map((row) => ({
               value: row.serviceId || row.serviceName,
-              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
-<div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
+              title: row.serviceName || row.serviceId,
+              subtitle: `${row.serviceId} • ${row.operatorName} • ${row.mode}`
             }));
             renderDropdownItems(elements.serviceSearchResults, items, (item) => {
               elements.serviceSearch.value = item.value;
@@ -3232,8 +3242,8 @@ const init = async () => {
             lat,
             lon,
             bbox,
-            html: `<div class="font-semibold text-text-main">${escapeHtml(name)}</div>
-<div class="text-[11px] text-text-secondary">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>`
+            title: name,
+            subtitle: `${lat.toFixed(5)}, ${lon.toFixed(5)}`
           };
         });
 
