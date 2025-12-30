@@ -526,13 +526,23 @@ const handleDropdownKeyNav = (event, inputEl, dropdownEl) => {
 
 // escapeHtml removed - now imported from ./js/utils/dom.js
 
+// Performance: Use a single reduce operation to tokenize the query.
+// This avoids creating multiple intermediate arrays from chained map/filter/slice
+// calls, reducing memory churn and CPU cycles on each keystroke.
 const tokenizeQuery = (value) =>
   String(value || "")
     .trim()
     .split(/\s+/)
-    .map((t) => t.replace(/[^\w\-]/g, ""))
-    .filter(Boolean)
-    .slice(0, 6);
+    .reduce((acc, token) => {
+      if (acc.length >= 6) {
+        return acc;
+      }
+      const cleaned = token.replace(/[^\w\-]/g, "");
+      if (cleaned) {
+        acc.push(cleaned);
+      }
+      return acc;
+    }, []);
 
 const queryServiceSuggestions = async (query, limit = 12) => {
   if (!state.conn) {
