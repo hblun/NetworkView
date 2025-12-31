@@ -104,7 +104,7 @@
         <button
           id="share-state"
           data-feature="share"
-          class="flex items-center gap-2 bg-white border border-border hover:bg-surface-alt text-text-secondary px-3 py-1.5 rounded text-xs font-medium transition-colors"
+          class="flex items-center gap-2 bg-white border border-border hover:bg-surface-alt text-text-secondary px-3 py-1.5 rounded text-xs font-medium transition-transform transition-colors active:scale-95"
           title="Share"
         >
           <span class="material-symbols-outlined text-[16px]">share</span>
@@ -113,7 +113,7 @@
         <button
           id="map-snapshot"
           data-feature="snapshot"
-          class="flex items-center gap-2 bg-white border border-border hover:bg-surface-alt text-text-secondary px-3 py-1.5 rounded text-xs font-medium transition-colors"
+          class="flex items-center gap-2 bg-white border border-border hover:bg-surface-alt text-text-secondary px-3 py-1.5 rounded text-xs font-medium transition-transform transition-colors active:scale-95"
           title="Snapshot"
         >
           <span class="material-symbols-outlined text-[16px]">image</span>
@@ -321,7 +321,7 @@
                     <label class="text-[10px] font-bold text-text-main uppercase tracking-wide">Point:</label>
                     <div data-slb-point-label class="text-[10px] font-mono text-text-secondary">Not set</div>
                   </div>
-                  <button data-slb-pick-point class="w-full py-1.5 rounded border border-border text-xs font-semibold bg-white hover:bg-slate-50 transition-colors">
+                  <button data-slb-pick-point class="w-full py-1.5 rounded border border-border text-xs font-semibold bg-white hover:bg-slate-50 transition-colors transition-transform active:scale-95">
                     <span class="material-symbols-outlined text-[14px] align-middle">location_on</span>
                     Pick Point on Map
                   </button>
@@ -329,7 +329,7 @@
               </div>
               <div class="bg-slate-50 px-3 py-2 border-t border-border flex justify-between gap-2">
                 <button id="slb-clear" class="text-xs text-text-secondary hover:text-text-main font-medium px-2 py-1">Clear</button>
-                <button id="slb-run" class="bg-primary hover:bg-primary-hover text-white text-xs font-bold px-3 py-1 rounded shadow-sm transition-colors flex items-center gap-1">
+                <button id="slb-run" class="bg-primary hover:bg-primary-hover text-white text-xs font-bold px-3 py-1 rounded shadow-sm transition-colors transition-transform active:scale-95 flex items-center gap-1">
                   Run Query
                   <span class="material-symbols-outlined text-[14px]">play_arrow</span>
                 </button>
@@ -375,14 +375,14 @@
             <div class="space-y-2">
               <button
                 id="apply-filters"
-                class="w-full py-2 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary-hover transition-colors"
+                class="w-full py-2 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary-hover transition-colors transition-transform active:scale-95"
               >
                 Apply filters
               </button>
               <button
                 id="load-sample"
                 data-feature="geojsonPreview"
-                class="w-full py-2 rounded-lg border border-border text-xs font-semibold bg-white hover:bg-slate-50 transition-colors"
+                class="w-full py-2 rounded-lg border border-border text-xs font-semibold bg-white hover:bg-slate-50 transition-colors transition-transform active:scale-95"
               >
                 Load GeoJSON preview
               </button>
@@ -478,14 +478,14 @@
             </div>
             <div class="mt-2 flex flex-col items-end gap-2">
               <div class="bg-white rounded-lg shadow-sm border border-border/60 flex flex-col overflow-hidden">
-                <button id="zoom-in" class="p-1.5 hover:bg-slate-50 border-b border-border/50 text-text-secondary transition-colors" aria-label="Zoom in" title="Zoom in">
+                <button id="zoom-in" class="p-1.5 hover:bg-slate-50 border-b border-border/50 text-text-secondary transition-colors transition-transform active:scale-95" aria-label="Zoom in" title="Zoom in">
                   <span class="material-symbols-outlined text-[20px]">add</span>
                 </button>
-                <button id="zoom-out" class="p-1.5 hover:bg-slate-50 text-text-secondary transition-colors" aria-label="Zoom out" title="Zoom out">
+                <button id="zoom-out" class="p-1.5 hover:bg-slate-50 text-text-secondary transition-colors transition-transform active:scale-95" aria-label="Zoom out" title="Zoom out">
                   <span class="material-symbols-outlined text-[20px]">remove</span>
                 </button>
               </div>
-              <button id="map-fullscreen" class="bg-white rounded-lg shadow-sm border border-border/60 p-1.5 hover:bg-slate-50 text-text-secondary transition-colors" aria-label="Toggle fullscreen map" title="Toggle fullscreen map">
+              <button id="map-fullscreen" class="bg-white rounded-lg shadow-sm border border-border/60 p-1.5 hover:bg-slate-50 text-text-secondary transition-colors transition-transform active:scale-95" aria-label="Toggle fullscreen map" title="Toggle fullscreen map">
                 <span class="material-symbols-outlined text-[20px]">fullscreen</span>
               </button>
             </div>
