@@ -3040,13 +3040,18 @@ const init = async () => {
       });
     }
     if (elements.dataTableScroll) {
-      let timer = null;
+      // Performance: Use requestAnimationFrame to throttle scroll events. This aligns
+      // table rendering with the browser's repaint cycle, preventing layout
+      // thrashing and creating a smoother scrolling experience than setTimeout.
+      let ticking = false;
       elements.dataTableScroll.addEventListener("scroll", () => {
-        if (timer) window.clearTimeout(timer);
-        timer = window.setTimeout(() => {
-          timer = null;
-          renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
-        }, 16);
+        if (!ticking) {
+          window.requestAnimationFrame(() => {
+            renderTable(elements, getSelectedServiceId, setStatus, updateEvidence, getCurrentFilters());
+            ticking = false;
+          });
+          ticking = true;
+        }
       });
     }
     try {
