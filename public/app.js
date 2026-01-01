@@ -678,20 +678,29 @@ const updateEvidence = () => {
 
   elements.evidenceLeft.innerHTML = "";
   const selectionCount = state.lastQuery?.count ?? null;
-  const browseMax = state.tablePaging?.enabled ? state.tablePaging.browseMax : state.tableLimit;
-  const limitNote =
-    selectionCount !== null && selectionCount !== undefined && selectionCount > browseMax
-      ? `Browsing capped at ${formatCount(browseMax)}`
-      : selectionCount !== null && selectionCount !== undefined && selectionCount > state.tableLimit
-        ? `Table shows first ${formatCount(state.tableLimit)}`
-        : null;
+
+  // Combine selection count and limit information for clarity.
+  let limitNote = "";
+  if (selectionCount !== null && selectionCount !== undefined) {
+    if (state.tablePaging?.enabled) {
+      if (selectionCount > state.tablePaging.browseMax) {
+        limitNote = ` (browsing capped to ${formatCount(state.tablePaging.browseMax)})`;
+      }
+    } else if (selectionCount > state.tableLimit) {
+      // Performance: Clarify when the non-paginated table view is capped.
+      limitNote = ` (table view capped to first ${formatCount(state.tableLimit)})`;
+    }
+  }
+
+  const selectionText =
+    selectionCount !== null && selectionCount !== undefined
+      ? `Selection: <strong class="font-semibold">${formatCount(selectionCount)}${limitNote}</strong>`
+      : null;
+
   const leftParts = [
     `Scope: <strong class="font-semibold">${hint}</strong>`,
     total ? `Dataset rows: <strong class="font-semibold">${formatCount(total)}</strong>` : null,
-    selectionCount !== null && selectionCount !== undefined
-      ? `Selection: <strong class="font-semibold">${formatCount(selectionCount)}</strong>`
-      : null,
-    limitNote ? `Limit: <strong class="font-semibold">${limitNote}</strong>` : null,
+    selectionText,
     getSpatialLogicEvidencePart(),
     `Updated: <strong class="font-semibold">${generatedAt}</strong>`
   ].filter(Boolean);
@@ -2814,7 +2823,7 @@ const init = async () => {
     if (isAdminMode()) {
       logEvent("info", "Admin mode enabled.");
     }
-    state.tableLimit = Math.max(100, Math.min(Number(state.config.tableLimit ?? 2000), 10000));
+    state.tableLimit = Math.max(100, Math.min(Number(state.config.tableLimit ?? 500), 10000));
     state.tablePaging.pageSize = Math.max(100, Math.min(Number(state.config.tablePageSize ?? 500), 5000));
     state.tablePaging.browseMax = Math.max(state.tablePaging.pageSize, Math.min(Number(state.config.tableBrowseMax ?? 10000), 500000));
     applyFeatureFlags(state.config);
