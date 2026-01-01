@@ -751,6 +751,16 @@ const withTimeout = (promise, ms, message) => {
 
 const toggleActionButtons = (enabled) => {
   elements.applyFilters.disabled = !enabled;
+  if (!enabled) {
+    elements.applyFilters.innerHTML = `
+      <span class="material-symbols-outlined animate-spin text-[16px]">progress_activity</span>
+      <span>Applying...</span>
+    `;
+    elements.applyFilters.classList.add("inline-flex", "items-center", "gap-2", "justify-center");
+  } else {
+    elements.applyFilters.innerHTML = "Apply filters";
+    elements.applyFilters.classList.remove("inline-flex", "items-center", "gap-2", "justify-center");
+  }
   elements.clearFilters.disabled = !enabled;
   const duckdbReady = enabled && Boolean(state.conn);
   const geojsonAvailable = duckdbReady && (state.geojsonField || (state.spatialReady && state.geometryField));
