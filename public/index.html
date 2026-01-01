@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Trapeze Routes Explorer</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com https://esm.sh https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://api.maptiler.com; font-src 'self' https://fonts.gstatic.com https://api.maptiler.com; img-src 'self' data: https://lh3.googleusercontent.com https://api.maptiler.com; worker-src 'self' blob:; connect-src 'self' https://api.maptiler.com;">
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,30 +21,7 @@
     />
     <link rel="stylesheet" href="styles.css" />
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <script id="tailwind-config">
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              primary: "#2563eb",
-              "primary-hover": "#1d4ed8",
-              background: "#f8fafc",
-              surface: "#ffffff",
-              "surface-alt": "#f1f5f9",
-              border: "#cbd5e1",
-              "text-main": "#0f172a",
-              "text-secondary": "#475569",
-              "text-tertiary": "#94a3b8",
-              accent: "#0ea5e9"
-            },
-            fontFamily: {
-              display: ["Inter", "sans-serif"],
-              body: ["Noto Sans", "sans-serif"]
-            }
-          }
-        }
-      };
-    </script>
+    <script src="tailwind.js"></script>
     <style type="text/tailwindcss">
       @layer utilities {
         .scrollbar-thin::-webkit-scrollbar {
