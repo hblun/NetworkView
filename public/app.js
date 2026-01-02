@@ -3110,24 +3110,21 @@ const init = async () => {
       );
     }
     if (elements.serviceSearch) {
-      let timer = null;
       elements.serviceSearch.addEventListener("keydown", (event) => {
         if (handleDropdownKeyNav(event, elements.serviceSearch, elements.serviceSearchResults)) {
           return;
         }
         if (event.key === "Enter") {
-          if (timer) window.clearTimeout(timer);
           onApplyFilters();
           hideDropdown(elements.serviceSearchResults);
         }
       });
       elements.serviceSearch.addEventListener("input", () => {
-        if (timer) window.clearTimeout(timer);
-        timer = window.setTimeout(() => {
-          timer = null;
-          onApplyFilters();
-        }, 350);
-        // Also update suggestions as the user types.
+        // Performance: Avoid re-applying all filters on every keystroke.
+        // The keydown handler for "Enter" and the suggestion picker will
+        // trigger the filter action explicitly. We only need to update suggestions here.
+
+        // Update suggestions as the user types.
         const value = getServiceSearchValue(elements.serviceSearch);
         if (value && state.conn) {
           queryServiceSuggestions(value).then((rows) => {
