@@ -3093,9 +3093,17 @@ const init = async () => {
     }
 
     elements.applyFilters.addEventListener("click", () => onApplyFilters({ autoFit: true }));
-    elements.clearFilters.addEventListener("click", onClearFilters);
+    elements.clearFilters.addEventListener("click", () => {
+      if (confirm("Are you sure you want to reset all filters?")) {
+        onClearFilters();
+      }
+    });
     if (elements.clearAll) {
-      elements.clearAll.addEventListener("click", onClearFilters);
+      elements.clearAll.addEventListener("click", () => {
+        if (confirm("Are you sure you want to clear all filters and selections?")) {
+          onClearFilters();
+        }
+      });
     }
     elements.loadSample.addEventListener("click", onLoadSample);
     elements.downloadGeojson.addEventListener("click", () =>
