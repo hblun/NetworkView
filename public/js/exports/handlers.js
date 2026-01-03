@@ -9,6 +9,7 @@ import { state } from "../state/manager.js";
 import { quoteIdentifier, escapeSql } from "../utils/sql.js";
 import { buildCombinedWhere } from "../filters/builder.js";
 import { EXPORT_LIMITS } from "../config/constants.js";
+import { escapeHtml, setButtonLoadingState } from "../utils/dom.js";
 
 /**
  * Set of columns to exclude from CSV exports
@@ -198,8 +199,9 @@ export const confirmLargeExport = async (count, format) => {
  * @param {Function} logAction - Action logging callback
  * @param {Function} logEvent - Event logging callback
  */
-export const onDownloadGeojson = async (setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getFilters) => {
+export const onDownloadGeojson = async (button, setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getFilters) => {
   logAction("GeoJSON export requested.");
+  setButtonLoadingState(button, true, "Exporting...");
   if (!state.geojsonField && !state.spatialReady) {
     setStatus("GeoJSON export requires spatial extension or geojson column.");
     return;
@@ -236,6 +238,7 @@ export const onDownloadGeojson = async (setStatus, toggleActionButtons, validate
     setStatus(`GeoJSON export failed: ${error.message}`);
   } finally {
     toggleActionButtons(true);
+    setButtonLoadingState(button, false);
   }
 };
 
@@ -248,8 +251,9 @@ export const onDownloadGeojson = async (setStatus, toggleActionButtons, validate
  * @param {Function} logAction - Action logging callback
  * @param {Function} logEvent - Event logging callback
  */
-export const onDownloadCsv = async (setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getFilters) => {
+export const onDownloadCsv = async (button, setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getFilters) => {
   logAction("CSV export requested.");
+  setButtonLoadingState(button, true, "Exporting...");
   const validation = validateFilters();
   if (validation) {
     setStatus(validation);
@@ -278,5 +282,6 @@ export const onDownloadCsv = async (setStatus, toggleActionButtons, validateFilt
     setStatus(`CSV export failed: ${error.message}`);
   } finally {
     toggleActionButtons(true);
+    setButtonLoadingState(button, false);
   }
 };

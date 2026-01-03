@@ -12,7 +12,7 @@ import { state, setConfig, setMap, setDuckDBConnection, setSpatialReady, setSele
 // Utilities
 import { escapeSql, quoteIdentifier, buildInClause, escapeLikePattern } from "./js/utils/sql.js";
 import { generateColor, rgbaToHex, hslToRgb, hashString } from "./js/utils/colors.js";
-import { clearElement, escapeHtml, getProp, getSelectedValues, getSelectedValue, formatCount, toNumber } from "./js/utils/dom.js";
+import { clearElement, escapeHtml, getProp, getSelectedValues, getSelectedValue, formatCount, toNumber, setButtonLoadingState } from "./js/utils/dom.js";
 import { joinUrl, toAbsoluteUrl, addCacheBuster } from "./js/utils/url.js";
 import { getGeometryCoordinates, getFeaturesBbox, isValidBbox, createCirclePolygon } from "./js/utils/geometry.js";
 
@@ -1329,6 +1329,7 @@ const onApplyFilters = async (options = {}) => {
     return;
   }
   state.applyingFilters = true;
+  setButtonLoadingState(elements.applyFilters, true, "Applying...");
   toggleActionButtons(false);
   setStatus("Applying filters...");
   logAction("Filters applied.", {
@@ -1401,6 +1402,7 @@ const onApplyFilters = async (options = {}) => {
   } finally {
     state.applyingFilters = false;
     toggleActionButtons(true);
+    setButtonLoadingState(elements.applyFilters, false);
     if (state.pendingFilterApply) {
       state.pendingFilterApply = false;
       window.setTimeout(() => {
@@ -3098,15 +3100,15 @@ const init = async () => {
       elements.clearAll.addEventListener("click", onClearFilters);
     }
     elements.loadSample.addEventListener("click", onLoadSample);
-    elements.downloadGeojson.addEventListener("click", () =>
-      onDownloadGeojson(setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
+    elements.downloadGeojson.addEventListener("click", (e) =>
+      onDownloadGeojson(e.currentTarget, setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
     );
-    elements.downloadCsv.addEventListener("click", () =>
-      onDownloadCsv(setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
+    elements.downloadCsv.addEventListener("click", (e) =>
+      onDownloadCsv(e.currentTarget, setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
     );
     if (elements.exportCsvTable) {
-      elements.exportCsvTable.addEventListener("click", () =>
-        onDownloadCsv(setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
+      elements.exportCsvTable.addEventListener("click", (e) =>
+        onDownloadCsv(e.currentTarget, setStatus, toggleActionButtons, validateFilters, queryCount, logAction, logEvent, getCurrentFilters)
       );
     }
     if (elements.serviceSearch) {
