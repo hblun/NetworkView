@@ -1185,7 +1185,8 @@ const updateScopeChips = () => {
   }
   if (laSelection) chips.push({ key: "la", icon: "place", label: `LA: ${laLabel || laSelection}` });
   if (rptSelection) chips.push({ key: "rpt", icon: "hub", label: `RTP: ${rptLabel || rptSelection}` });
-  if (search) chips.push({ key: "search", icon: "search", label: `Search: ${search}` });
+  // Note: `escapeHtml` is imported from ./js/utils/dom.js at the top of this file.
+  if (search) chips.push({ key: "search", icon: "search", label: `Search: ${escapeHtml(search)}` });
   if (bbox) chips.push({ key: "bbox", icon: "crop_free", label: `Limit: ${bbox}` });
 
   if (!chips.length) {
