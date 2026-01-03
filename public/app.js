@@ -15,6 +15,7 @@ import { generateColor, rgbaToHex, hslToRgb, hashString } from "./js/utils/color
 import { clearElement, escapeHtml, getProp, getSelectedValues, getSelectedValue, formatCount, toNumber } from "./js/utils/dom.js";
 import { joinUrl, toAbsoluteUrl, addCacheBuster } from "./js/utils/url.js";
 import { getGeometryCoordinates, getFeaturesBbox, isValidBbox, createCirclePolygon } from "./js/utils/geometry.js";
+import { debounce } from "./js/utils/debounce.js";
 
 // Domain modules
 import { initDuckDb, executeQuery, countRows, detectSchemaFields } from "./js/duckdb/client.js";
@@ -3111,6 +3112,26 @@ const init = async () => {
     }
     if (elements.serviceSearch) {
       let timer = null;
+      const debouncedQuerySuggestions = debounce((value) => {
+        if (value && state.conn) {
+          queryServiceSuggestions(value).then((rows) => {
+            const items = rows.map((row) => ({
+              value: row.serviceId || row.serviceName,
+              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
+<div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
+            }));
+            renderDropdownItems(elements.serviceSearchResults, items, (item) => {
+              elements.serviceSearch.value = item.value;
+              hideDropdown(elements.serviceSearchResults);
+              onApplyFilters();
+            });
+            setDropdownActive(elements.serviceSearchResults, 0);
+          });
+        } else {
+          hideDropdown(elements.serviceSearchResults);
+        }
+      }, 250);
+
       elements.serviceSearch.addEventListener("keydown", (event) => {
         if (handleDropdownKeyNav(event, elements.serviceSearch, elements.serviceSearchResults)) {
           return;
@@ -3129,23 +3150,7 @@ const init = async () => {
         }, 350);
         // Also update suggestions as the user types.
         const value = getServiceSearchValue(elements.serviceSearch);
-        if (value && state.conn) {
-          queryServiceSuggestions(value).then((rows) => {
-            const items = rows.map((row) => ({
-              value: row.serviceId || row.serviceName,
-              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
-<div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
-            }));
-            renderDropdownItems(elements.serviceSearchResults, items, (item) => {
-              elements.serviceSearch.value = item.value;
-              hideDropdown(elements.serviceSearchResults);
-              onApplyFilters();
-            });
-            setDropdownActive(elements.serviceSearchResults, 0);
-          });
-        } else {
-          hideDropdown(elements.serviceSearchResults);
-        }
+        debouncedQuerySuggestions(value);
       });
       elements.serviceSearch.addEventListener("focus", () => {
         const value = getServiceSearchValue(elements.serviceSearch);
