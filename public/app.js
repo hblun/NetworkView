@@ -81,10 +81,41 @@ const elements = {
   placeSearchResults: document.getElementById("place-search-results"),
   spatialLogicTool: document.getElementById("spatial-logic-tool"),
   spatialLogicPickPoint: document.querySelector("[data-slb-pick-point]"),
-  spatialLogicPointLabel: document.querySelector("[data-slb-point-label]")
+  spatialLogicPointLabel: document.querySelector("[data-slb-point-label]"),
+  confirmationModal: document.getElementById("confirmation-modal"),
+  modalTitle: document.getElementById("modal-title"),
+  modalMessage: document.getElementById("modal-message"),
+  modalConfirm: document.getElementById("modal-confirm"),
+  modalCancel: document.getElementById("modal-cancel")
 };
 
 let geocoderMarker = null;
+
+const showConfirmation = (title, message) => {
+  return new Promise((resolve) => {
+    elements.modalTitle.textContent = title;
+    elements.modalMessage.textContent = message;
+
+    const onConfirm = () => {
+      elements.confirmationModal.classList.add("hidden");
+      elements.modalConfirm.removeEventListener("click", onConfirm);
+      elements.modalCancel.removeEventListener("click", onCancel);
+      resolve(true);
+    };
+
+    const onCancel = () => {
+      elements.confirmationModal.classList.add("hidden");
+      elements.modalConfirm.removeEventListener("click", onConfirm);
+      elements.modalCancel.removeEventListener("click", onCancel);
+      resolve(false);
+    };
+
+    elements.modalConfirm.addEventListener("click", onConfirm);
+    elements.modalCancel.addEventListener("click", onCancel);
+
+    elements.confirmationModal.classList.remove("hidden");
+  });
+};
 
 // NONE_OPTION_VALUE, state, constants, and utilities now imported from modules
 
@@ -1691,7 +1722,14 @@ const loadInitialDatasetView = async () => {
   }
 };
 
-const onClearFilters = () => {
+const onClearFilters = async () => {
+  const confirmed = await showConfirmation(
+    "Clear All Filters?",
+    "Are you sure you want to clear all filters and selections? This action cannot be undone."
+  );
+  if (!confirmed) {
+    return;
+  }
   logAction("Filters cleared.");
   Array.from(elements.modeFilter.options).forEach((opt) => {
     opt.selected = false;

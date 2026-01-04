@@ -592,5 +592,19 @@
       </main>
     </div>
     <script type="module" src="boot.js?v=2025-12-25-7"></script>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal" class="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-6 hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+      <div class="bg-white rounded-xl shadow-xl border border-border w-full max-w-sm">
+        <div class="p-5">
+          <h2 id="modal-title" class="text-lg font-semibold text-text-main">Are you sure?</h2>
+          <p id="modal-message" class="text-sm text-text-secondary mt-1">This action cannot be undone.</p>
+        </div>
+        <div class="px-5 py-3 border-t border-border flex justify-end gap-2 bg-slate-50/60 rounded-b-xl">
+          <button id="modal-cancel" class="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-white">Cancel</button>
+          <button id="modal-confirm" class="px-3 py-1.5 text-sm bg-primary text-white rounded-md hover:bg-primary-hover">Confirm</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
