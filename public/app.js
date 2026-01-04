@@ -3193,9 +3193,12 @@ const init = async () => {
         }, delayMs);
       };
     };
+    // A 400ms debounce is used to batch multiple rapid filter selections (e.g.,
+    // in a multi-select dropdown) into a single, expensive update operation.
+    // This improves UI responsiveness.
     const scheduleApplyFilters = makeDebounced(() => {
       onApplyFilters();
-    }, 150);
+    }, 400);
     const bindFilterChange = (el) => {
       if (!el) return;
       el.addEventListener("change", scheduleApplyFilters);
