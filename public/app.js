@@ -1329,6 +1329,7 @@ const onApplyFilters = async (options = {}) => {
     return;
   }
   state.applyingFilters = true;
+  elements.applyFilters.innerHTML = `<div class="flex items-center justify-center gap-2"><span class="material-symbols-outlined text-[16px] animate-spin">autorenew</span><span>Applying...</span></div>`;
   toggleActionButtons(false);
   setStatus("Applying filters...");
   logAction("Filters applied.", {
@@ -1400,6 +1401,7 @@ const onApplyFilters = async (options = {}) => {
     setStatus(`Query failed: ${error.message}`);
   } finally {
     state.applyingFilters = false;
+    elements.applyFilters.innerHTML = "Apply filters";
     toggleActionButtons(true);
     if (state.pendingFilterApply) {
       state.pendingFilterApply = false;
