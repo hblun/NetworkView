@@ -4,8 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Trapeze Routes Explorer</title>
+    <!-- ⚡ Bolt: Performance Optimization -->
+    <!-- Preconnect to critical third-party origins to speed up DNS resolution, TCP handshake, and TLS negotiation. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://unpkg.com" />
+    <!-- Preload the critical MapLibre CSS to ensure it's available earlier in the page render, preventing a flash of unstyled content on the map. -->
+    <link rel="preload" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" as="style" />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
