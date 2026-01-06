@@ -43,6 +43,8 @@ const elements = {
   advancedToggleIcon: document.getElementById("advanced-toggle-icon"),
   advancedPanel: document.getElementById("advanced-panel"),
   applyFilters: document.getElementById("apply-filters"),
+  applyFiltersText: document.getElementById("apply-filters-text"),
+  applyFiltersLoading: document.getElementById("apply-filters-loading"),
   clearFilters: document.getElementById("clear-filters"),
   clearAll: document.getElementById("clear-all"),
   scopeChips: document.getElementById("scope-chips"),
@@ -1329,6 +1331,8 @@ const onApplyFilters = async (options = {}) => {
     return;
   }
   state.applyingFilters = true;
+  if (elements.applyFiltersText) elements.applyFiltersText.classList.add("hidden");
+  if (elements.applyFiltersLoading) elements.applyFiltersLoading.classList.remove("hidden");
   toggleActionButtons(false);
   setStatus("Applying filters...");
   logAction("Filters applied.", {
@@ -1400,6 +1404,8 @@ const onApplyFilters = async (options = {}) => {
     setStatus(`Query failed: ${error.message}`);
   } finally {
     state.applyingFilters = false;
+    if (elements.applyFiltersText) elements.applyFiltersText.classList.remove("hidden");
+    if (elements.applyFiltersLoading) elements.applyFiltersLoading.classList.add("hidden");
     toggleActionButtons(true);
     if (state.pendingFilterApply) {
       state.pendingFilterApply = false;
