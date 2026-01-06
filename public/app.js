@@ -1185,7 +1185,7 @@ const updateScopeChips = () => {
   }
   if (laSelection) chips.push({ key: "la", icon: "place", label: `LA: ${laLabel || laSelection}` });
   if (rptSelection) chips.push({ key: "rpt", icon: "hub", label: `RTP: ${rptLabel || rptSelection}` });
-  if (search) chips.push({ key: "search", icon: "search", label: `Search: ${search}` });
+  if (search) chips.push({ key: "search", icon: "search", label: `Search: ${escapeHtml(search)}` });
   if (bbox) chips.push({ key: "bbox", icon: "crop_free", label: `Limit: ${bbox}` });
 
   if (!chips.length) {
@@ -3153,11 +3153,11 @@ const init = async () => {
           queryServiceSuggestions(value).then((rows) => {
             const items = rows.map((row) => ({
               value: row.serviceId || row.serviceName,
-              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
-<div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
+              html: `<div class="font-semibold text-text-main">${row.serviceName || row.serviceId}</div>
+<div class="text-[11px] text-text-secondary">${row.serviceId} • ${row.operatorName} • ${row.mode}</div>`
             }));
             renderDropdownItems(elements.serviceSearchResults, items, (item) => {
-              elements.serviceSearch.value = item.value;
+              elements.serviceSearch.value = escapeHtml(item.value);
               hideDropdown(elements.serviceSearchResults);
               onApplyFilters();
             });
