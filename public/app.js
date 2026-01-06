@@ -552,18 +552,25 @@ const queryServiceSuggestions = async (query, limit = 12) => {
   if (!tokens.length) {
     return [];
   }
+  // Performance: Hoist column existence checks out of the loop.
+  // This avoids repeatedly scanning the columns array for every token.
+  const allColumns = state.columns || [];
+  const hasServiceName = allColumns.includes("serviceName");
+  const hasServiceId = allColumns.includes("serviceId");
+  const hasOperatorName = allColumns.includes("operatorName");
+  const hasMode = allColumns.includes("mode");
 
   const likeClauses = tokens.map((token) => {
     const q = escapeSql(token.toLowerCase());
     const like = `'%${q}%'`;
     const parts = [];
-    if ((state.columns || []).includes("serviceName")) {
+    if (hasServiceName) {
       parts.push(`LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE ${like}`);
     }
-    if ((state.columns || []).includes("serviceId")) {
+    if (hasServiceId) {
       parts.push(`LOWER(CAST(${quoteIdentifier("serviceId")} AS VARCHAR)) LIKE ${like}`);
     }
-    if ((state.columns || []).includes("operatorName")) {
+    if (hasOperatorName) {
       parts.push(`LOWER(CAST(${quoteIdentifier("operatorName")} AS VARCHAR)) LIKE ${like}`);
     }
     return parts.length ? `(${parts.join(" OR ")})` : "TRUE";
@@ -571,13 +578,13 @@ const queryServiceSuggestions = async (query, limit = 12) => {
 
   const where = likeClauses.length ? `WHERE ${likeClauses.join(" AND ")}` : "";
   const q0 = escapeSql(tokens[0].toLowerCase());
-  const exactId = (state.columns || []).includes("serviceId")
+  const exactId = hasServiceId
     ? `CASE WHEN LOWER(CAST(${quoteIdentifier("serviceId")} AS VARCHAR)) = '${q0}' THEN 3 ELSE 0 END`
     : "0";
-  const prefixName = (state.columns || []).includes("serviceName")
+  const prefixName = hasServiceName
     ? `CASE WHEN LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE '${q0}%' THEN 2 ELSE 0 END`
     : "0";
-  const containsName = (state.columns || []).includes("serviceName")
+  const containsName = hasServiceName
     ? `CASE WHEN LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE '%${q0}%' THEN 1 ELSE 0 END`
     : "0";
 
@@ -585,10 +592,10 @@ const queryServiceSuggestions = async (query, limit = 12) => {
   const querySql = `
     SELECT
       ${score} AS _score,
-      ${state.columns.includes("serviceId") ? quoteIdentifier("serviceId") : "NULL"} AS serviceId,
-      ${state.columns.includes("serviceName") ? quoteIdentifier("serviceName") : "NULL"} AS serviceName,
-      ${state.columns.includes("operatorName") ? quoteIdentifier("operatorName") : "NULL"} AS operatorName,
-      ${state.columns.includes("mode") ? quoteIdentifier("mode") : "NULL"} AS mode
+      ${hasServiceId ? quoteIdentifier("serviceId") : "NULL"} AS serviceId,
+      ${hasServiceName ? quoteIdentifier("serviceName") : "NULL"} AS serviceName,
+      ${hasOperatorName ? quoteIdentifier("operatorName") : "NULL"} AS operatorName,
+      ${hasMode ? quoteIdentifier("mode") : "NULL"} AS mode
     FROM read_parquet('routes.parquet')
     ${where}
     ORDER BY _score DESC, serviceName ASC
