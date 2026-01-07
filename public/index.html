@@ -106,6 +106,7 @@
           data-feature="share"
           class="flex items-center gap-2 bg-white border border-border hover:bg-surface-alt text-text-secondary px-3 py-1.5 rounded text-xs font-medium transition-colors"
           title="Share"
+          aria-label="Share map view"
         >
           <span class="material-symbols-outlined text-[16px]">share</span>
           Share
@@ -115,6 +116,7 @@
           data-feature="snapshot"
           class="flex items-center gap-2 bg-white border border-border hover:bg-surface-alt text-text-secondary px-3 py-1.5 rounded text-xs font-medium transition-colors"
           title="Snapshot"
+          aria-label="Download map as image"
         >
           <span class="material-symbols-outlined text-[16px]">image</span>
           Map Snapshot
@@ -134,7 +136,7 @@
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-xs font-bold uppercase tracking-wider text-text-secondary">Scope</h2>
             <div class="flex items-center gap-2">
-              <button id="sidebar-fullscreen" class="text-text-tertiary hover:text-primary transition-colors" title="Toggle fullscreen sidebar">
+              <button id="sidebar-fullscreen" class="text-text-tertiary hover:text-primary transition-colors" title="Toggle fullscreen sidebar" aria-label="Toggle fullscreen sidebar">
                 <span class="material-symbols-outlined text-[18px]">fullscreen</span>
               </button>
               <button id="clear-all" class="text-[10px] text-primary hover:underline">Clear All</button>
