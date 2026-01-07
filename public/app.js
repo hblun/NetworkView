@@ -3110,42 +3110,49 @@ const init = async () => {
       );
     }
     if (elements.serviceSearch) {
-      let timer = null;
+      let filterTimer = null;
+      let suggestionsTimer = null;
       elements.serviceSearch.addEventListener("keydown", (event) => {
         if (handleDropdownKeyNav(event, elements.serviceSearch, elements.serviceSearchResults)) {
           return;
         }
         if (event.key === "Enter") {
-          if (timer) window.clearTimeout(timer);
+          if (filterTimer) window.clearTimeout(filterTimer);
           onApplyFilters();
           hideDropdown(elements.serviceSearchResults);
         }
       });
       elements.serviceSearch.addEventListener("input", () => {
-        if (timer) window.clearTimeout(timer);
-        timer = window.setTimeout(() => {
-          timer = null;
+        if (filterTimer) window.clearTimeout(filterTimer);
+        filterTimer = window.setTimeout(() => {
+          filterTimer = null;
           onApplyFilters();
         }, 350);
-        // Also update suggestions as the user types.
-        const value = getServiceSearchValue(elements.serviceSearch);
-        if (value && state.conn) {
-          queryServiceSuggestions(value).then((rows) => {
-            const items = rows.map((row) => ({
-              value: row.serviceId || row.serviceName,
-              html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
+
+        // Debounce expensive suggestion queries to avoid running them on every keystroke,
+        // which improves UI responsiveness and reduces unnecessary database load.
+        if (suggestionsTimer) window.clearTimeout(suggestionsTimer);
+        suggestionsTimer = window.setTimeout(() => {
+          suggestionsTimer = null;
+          const value = getServiceSearchValue(elements.serviceSearch);
+          if (value && state.conn) {
+            queryServiceSuggestions(value).then((rows) => {
+              const items = rows.map((row) => ({
+                value: row.serviceId || row.serviceName,
+                html: `<div class="font-semibold text-text-main">${escapeHtml(row.serviceName || row.serviceId)}</div>
 <div class="text-[11px] text-text-secondary">${escapeHtml(row.serviceId)} • ${escapeHtml(row.operatorName)} • ${escapeHtml(row.mode)}</div>`
-            }));
-            renderDropdownItems(elements.serviceSearchResults, items, (item) => {
-              elements.serviceSearch.value = item.value;
-              hideDropdown(elements.serviceSearchResults);
-              onApplyFilters();
+              }));
+              renderDropdownItems(elements.serviceSearchResults, items, (item) => {
+                elements.serviceSearch.value = item.value;
+                hideDropdown(elements.serviceSearchResults);
+                onApplyFilters();
+              });
+              setDropdownActive(elements.serviceSearchResults, 0);
             });
-            setDropdownActive(elements.serviceSearchResults, 0);
-          });
-        } else {
-          hideDropdown(elements.serviceSearchResults);
-        }
+          } else {
+            hideDropdown(elements.serviceSearchResults);
+          }
+        }, 250);
       });
       elements.serviceSearch.addEventListener("focus", () => {
         const value = getServiceSearchValue(elements.serviceSearch);
