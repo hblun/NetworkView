@@ -2797,6 +2797,16 @@ const applyUiConfig = (config) => {
   }
 };
 
+// Performance: A simple debounce utility to prevent rapid-fire function calls.
+const debounce = (func, delay) => {
+  let timeout;
+  return function(...args) {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(context, args), delay);
+  };
+};
+
 const init = async () => {
   try {
     toggleActionButtons(false);
@@ -3121,13 +3131,7 @@ const init = async () => {
           hideDropdown(elements.serviceSearchResults);
         }
       });
-      elements.serviceSearch.addEventListener("input", () => {
-        if (timer) window.clearTimeout(timer);
-        timer = window.setTimeout(() => {
-          timer = null;
-          onApplyFilters();
-        }, 350);
-        // Also update suggestions as the user types.
+      const debouncedQuery = debounce(() => {
         const value = getServiceSearchValue(elements.serviceSearch);
         if (value && state.conn) {
           queryServiceSuggestions(value).then((rows) => {
@@ -3146,6 +3150,13 @@ const init = async () => {
         } else {
           hideDropdown(elements.serviceSearchResults);
         }
+      }, 250);
+
+      const debouncedApply = debounce(onApplyFilters, 350);
+
+      elements.serviceSearch.addEventListener("input", () => {
+        debouncedApply();
+        debouncedQuery();
       });
       elements.serviceSearch.addEventListener("focus", () => {
         const value = getServiceSearchValue(elements.serviceSearch);
