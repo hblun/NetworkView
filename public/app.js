@@ -2766,6 +2766,62 @@ const initTabs = () => {
   setActive("filters");
 };
 
+const initTooltips = () => {
+  let tooltipEl = null;
+
+  const showTooltip = (event) => {
+    const target = event.target.closest("[data-tooltip]");
+    if (!target) {
+      return;
+    }
+
+    if (!tooltipEl) {
+      tooltipEl = document.createElement("div");
+      tooltipEl.className =
+        "fixed z-50 px-2 py-1 text-xs font-semibold text-white bg-slate-800 rounded shadow-lg pointer-events-none opacity-0 transition-opacity";
+      document.body.appendChild(tooltipEl);
+    }
+
+    tooltipEl.textContent = target.dataset.tooltip;
+    positionTooltip(event);
+    tooltipEl.style.opacity = "1";
+  };
+
+  const hideTooltip = (event) => {
+    const target = event.target.closest("[data-tooltip]");
+    if (target && tooltipEl) {
+      tooltipEl.style.opacity = "0";
+    }
+  };
+
+  const positionTooltip = (event) => {
+    if (!tooltipEl || tooltipEl.style.opacity === "0") {
+      return;
+    }
+
+    const xOffset = 10;
+    const yOffset = 15;
+    let x = event.clientX + xOffset;
+    let y = event.clientY + yOffset;
+
+    const tooltipRect = tooltipEl.getBoundingClientRect();
+
+    if (x + tooltipRect.width > window.innerWidth) {
+      x = event.clientX - tooltipRect.width - xOffset;
+    }
+    if (y + tooltipRect.height > window.innerHeight) {
+      y = event.clientY - tooltipRect.height - yOffset;
+    }
+
+    tooltipEl.style.left = `${x}px`;
+    tooltipEl.style.top = `${y}px`;
+  };
+
+  document.body.addEventListener("mouseover", showTooltip);
+  document.body.addEventListener("mouseout", hideTooltip);
+  document.body.addEventListener("mousemove", positionTooltip);
+};
+
 const applyUiConfig = (config) => {
   const ui = config.ui || {};
 
@@ -2949,6 +3005,7 @@ const init = async () => {
       });
     }
     initTabs();
+    initTooltips();
     let spatialLogicRunner = null;
     if (elements.spatialLogicTool && !elements.spatialLogicTool.hidden) {
       spatialLogicRunner = await loadSpatialLogicRunner(state.config, setStatus);
