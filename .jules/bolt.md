@@ -1,0 +1,3 @@
+## 2024-07-22 - Prefer for...of over reduce for simple array processing
+**Learning:** For simple array transformations that don't require the accumulator pattern, a `for...of` loop is more performant than `Array.prototype.reduce`. The overhead of calling a function on each iteration makes `reduce` less efficient for simple transformations.
+**Action:** When I encounter `reduce` being used for simple array processing, I will refactor it to a `for...of` loop to improve performance.
