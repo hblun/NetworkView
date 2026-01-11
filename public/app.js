@@ -1042,6 +1042,15 @@ const renderSelection = (feature) => {
       button.addEventListener("click", async () => {
         const ok = await copyText(row.value);
         setStatus(ok ? `${row.label} copied.` : `Copy failed.`);
+        if (ok) {
+          const originalIconHTML = button.innerHTML;
+          button.innerHTML = '<span class="material-symbols-outlined text-green-600" style="font-size:14px">check</span>';
+          button.disabled = true;
+          setTimeout(() => {
+            button.innerHTML = originalIconHTML;
+            button.disabled = false;
+          }, 1500);
+        }
       });
       value.appendChild(button);
     }
