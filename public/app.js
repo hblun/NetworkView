@@ -554,8 +554,8 @@ const queryServiceSuggestions = async (query, limit = 12) => {
   }
 
   const likeClauses = tokens.map((token) => {
-    const q = escapeSql(token.toLowerCase());
-    const like = `'%${q}%'`;
+    const q = escapeLikePattern(token.toLowerCase());
+    const like = `'%${q}%' ESCAPE '\\'`;
     const parts = [];
     if ((state.columns || []).includes("serviceName")) {
       parts.push(`LOWER(CAST(${quoteIdentifier("serviceName")} AS VARCHAR)) LIKE ${like}`);
